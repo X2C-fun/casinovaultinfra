@@ -1,0 +1,37 @@
+# Rust / Anchor build output
+target/
+.anchor/
+**/*.rs.bk
+
+# Local validator ledgers
+test-ledger/
+.ledger/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Local keypairs. Never commit a secret key.
+# Recreate the provider wallet with: solana-keygen new -o wallet.json
+wallet.json
+*-keypair.json
+keys/
+
+# Env files (templates are committed)
+.env
+.env.*
+!.env.example
+
+# npm artifact
+casino-vault@*
+
+# Frontend
+casinovault-frontend/.env.local
+casinovault-frontend/.next/
+casinovault-frontend/node_modules/
+
+
+# OS / editor
+.DS_Store
+*.swp

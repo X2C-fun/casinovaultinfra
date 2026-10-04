@@ -1,0 +1,26 @@
+[workspace]
+members = ["programs/*"]
+# Anchor 0.32's manifest parser only understands resolver 1 and 2, so the
+# workspace stays on 2 and `Cargo.lock` is the pin instead.
+#
+# Solana platform-tools ships Cargo 1.84, which cannot parse lockfile version 4
+# (written by host Cargo ≥1.84) and cannot compile edition-2024 crates. Always
+# regenerate with the MSRV-aware resolver, then force version = 3:
+#
+#   rm -f Cargo.lock
+#   cargo +nightly generate-lockfile -Zmsrv-policy \
+#     --config 'resolver.incompatible-rust-versions="fallback"'
+#   # then set the third line of Cargo.lock from `version = 4` to `version = 3`
+#
+# Commit Cargo.lock. Do not let a plain `cargo update` on a new host rewrite it.
+resolver = "2"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1
