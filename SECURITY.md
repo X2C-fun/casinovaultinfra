@@ -35,8 +35,8 @@ touch funds you do not own.
 
 | Key | Powers | If it leaks |
 | --- | ------ | ----------- |
-| **Admin** (`VaultState.admin`, `ADMIN_SECRET_KEY`) | Co-signs every withdrawal; pauses and unpauses. | An attacker with any wallet can drain the pool (minus the rent reserve), and can unpause a paused vault. v0.1 has no on-chain admin rotation — recovery means upgrading the program. |
-| **Upgrade authority** (`wallet.json` at deploy time) | Replaces the program code. | Total loss: new code can move every lamport. Move it to a multisig (e.g. Squads) or make the program immutable before mainnet. |
+| **Admin** (`VaultState.admin`, `ADMIN_SECRET_KEY`) | Co-signs every withdrawal; pauses and unpauses. | An attacker with any wallet can withdraw up to the configured caps (v0.2) or the whole pool minus the rent reserve (v0.1, or v0.2 without caps), and can unpause. In v0.2 the upgrade authority rotates the admin in one transaction; in v0.1 recovery means upgrading the program. |
+| **Upgrade authority** (`wallet.json` at deploy time) | Replaces the program code. In v0.2 also runs `initialize`, rotates the admin and sets withdrawal caps. | Total loss: new code can move every lamport. Move it to a multisig (e.g. Squads) or make the program immutable before mainnet. |
 | **User wallet** | Deposits; signs its own withdrawals. | Only that user's withdrawals are affected; payouts can go only to the signing user. |
 
 Keep the admin key and the upgrade authority separate. The public devnet demo

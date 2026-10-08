@@ -4,6 +4,13 @@ import { explorerAddress } from "@/lib/constants";
 import { lamportsToSol, shortAddress } from "@/lib/format";
 import type { VaultSnapshot } from "@/hooks/useVaultState";
 
+function formatWindow(seconds: number): string {
+  if (seconds % 86_400 === 0) return seconds === 86_400 ? "day" : `${seconds / 86_400} days`;
+  if (seconds % 3_600 === 0) return seconds === 3_600 ? "hour" : `${seconds / 3_600} hours`;
+  if (seconds % 60 === 0) return seconds === 60 ? "minute" : `${seconds / 60} minutes`;
+  return `${seconds}s`;
+}
+
 export function VaultStatus({
   data,
   loading,
@@ -95,6 +102,23 @@ export function VaultStatus({
             </a>
           </dd>
         </div>
+        <div>
+          <dt>Withdrawal limits</dt>
+          <dd>
+            {data.maxWithdrawPerTx > 0n
+              ? `${lamportsToSol(data.maxWithdrawPerTx)} SOL per withdrawal`
+              : "No per-withdrawal cap"}
+            {data.maxWithdrawPerWindow > 0n
+              ? ` · ${lamportsToSol(data.maxWithdrawPerWindow)} SOL per ${formatWindow(data.windowSeconds)}`
+              : ""}
+          </dd>
+        </div>
+        {data.pendingAdmin ? (
+          <div>
+            <dt>Pending admin</dt>
+            <dd>{shortAddress(data.pendingAdmin.toBase58(), 6)}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Rent reserve</dt>
           <dd>{lamportsToSol(data.rentReserve)} SOL (locked)</dd>

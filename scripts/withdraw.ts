@@ -2,53 +2,52 @@
  * WRITE — withdraw SOL from the pool (requires user + admin signatures).
  *
  * The admin wallet must match `VaultState.admin`. For a real product the
- * backend holds the admin key and co-signs after off-chain balance checks.
+ * backend holds the admin key, places a hold on the user's balance, and passes
+ * that hold's ID as `request_id` so the `WithdrawEvent` can settle it.
  *
  * Usage (same wallet as admin AND recipient — house withdraw):
  *   ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
  *   ANCHOR_WALLET=./keys/admin.json \
- *   npx ts-node --compiler-options '{"module":"commonjs"}' scripts/withdraw.ts 0.05
+ *   npm run withdraw -- 0.05 [request_id]
  *
  * Usage (player recipient, admin co-sign):
  *   ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
  *   ANCHOR_WALLET=./keys/player.json \
  *   ADMIN_WALLET=./keys/admin.json \
- *   npx ts-node --compiler-options '{"module":"commonjs"}' scripts/withdraw.ts 0.05
+ *   npm run withdraw -- 0.05 [request_id]
+ *
+ * `request_id` defaults to the current Unix time in milliseconds.
  */
 
-import * as fs from "fs";
 import { BN } from "@coral-xyz/anchor";
-import { Keypair, LAMPORTS_PER_SOL, SystemProgram } from "@solana/web3.js";
+import { Keypair, SystemProgram } from "@solana/web3.js";
 import {
   derivePoolVaultPda,
   deriveVaultStatePda,
   lamportsToSol,
+  loadKeypair,
   loadProgram,
   loadProvider,
+  parseU64,
   sendWithRetry,
+  solToLamports,
 } from "./common";
 
-function loadKeypair(path: string): Keypair {
-  const secret = JSON.parse(fs.readFileSync(path, "utf8")) as number[];
-  return Keypair.fromSecretKey(Uint8Array.from(secret));
-}
-
 async function main() {
-  const solArg = process.argv[2];
+  const [solArg, requestIdArg] = process.argv.slice(2);
   if (!solArg) {
-    console.error("Usage: withdraw.ts <amount_sol>");
+    console.error("Usage: withdraw.ts <amount_sol> [request_id]");
     process.exit(1);
   }
 
-  const amount = Math.round(parseFloat(solArg) * LAMPORTS_PER_SOL);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    console.error("Amount must be a positive SOL value.");
-    process.exit(1);
-  }
+  const amount = solToLamports(solArg);
+  const requestId = requestIdArg
+    ? parseU64(requestIdArg, "request_id")
+    : BigInt(Date.now());
 
   const provider = loadProvider();
   const program = loadProgram(provider);
-  const user = (provider.wallet as any).payer as Keypair;
+  const user = (provider.wallet as unknown as { payer: Keypair }).payer;
   const adminPath = process.env.ADMIN_WALLET;
   const admin = adminPath ? loadKeypair(adminPath) : user;
 
@@ -62,18 +61,28 @@ async function main() {
     console.error("signing admin: ", admin.publicKey.toBase58());
     process.exit(1);
   }
+  const perTx = BigInt(state.maxWithdrawPerTx.toString());
+  if (perTx > BigInt(0) && amount > perTx) {
+    console.error(
+      `Amount exceeds the per-transaction cap of ${lamportsToSol(perTx)} SOL.`,
+    );
+    process.exit(1);
+  }
 
   console.log("withdrawing", lamportsToSol(amount), "SOL");
-  console.log("user: ", user.publicKey.toBase58());
-  console.log("admin:", admin.publicKey.toBase58());
+  console.log("user:       ", user.publicKey.toBase58());
+  console.log("admin:      ", admin.publicKey.toBase58());
+  console.log("request_id: ", requestId.toString());
 
-  const builder = program.methods.withdraw(new BN(amount)).accountsPartial({
-    user: user.publicKey,
-    admin: admin.publicKey,
-    vaultState,
-    poolVault,
-    systemProgram: SystemProgram.programId,
-  });
+  const builder = program.methods
+    .withdraw(new BN(amount.toString()), new BN(requestId.toString()))
+    .accountsPartial({
+      user: user.publicKey,
+      admin: admin.publicKey,
+      vaultState,
+      poolVault,
+      systemProgram: SystemProgram.programId,
+    });
 
   const signers = admin.publicKey.equals(user.publicKey)
     ? [user]

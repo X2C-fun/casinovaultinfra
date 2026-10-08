@@ -8,8 +8,10 @@ export const PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_VAULT_PROGRAM_ID?.trim() || DEFAULT_PROGRAM_ID,
 );
 
-export const VAULT_STATE_SEED = Buffer.from("vault_state");
+export const VAULT_STATE_SEED = Buffer.from("vault_state_v2");
 export const POOL_VAULT_SEED = Buffer.from("pool_vault");
+/** Seed of the PDA Anchor's `emit_cpi!` signs with. */
+export const EVENT_AUTHORITY_SEED = Buffer.from("__event_authority");
 
 export const SOLANA_RPC =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??

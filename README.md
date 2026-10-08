@@ -12,14 +12,18 @@ backend database, which is driven by the events emitted here.
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
 | Rust (SBF)        | `1.84.0`, edition 2021                         |
-| Deployed clusters | devnet (demo — see note below)                 |
+| Program version   | `0.2.0` (this branch)                          |
+| Deployed clusters | devnet runs **v0.1** (demo — see note below)   |
 
-> **Status: devnet demo, not audited, not for mainnet funds.** The public devnet
-> instance uses one key as both upgrade authority and vault admin
-> (`5ddTS84UFxK8y2qELjvouw7xtcgBAPxk6JuM3FTyLfoa`). That is a demo shortcut, not a
-> reference configuration — this README tells you to keep them separate. Read
-> [Backend withdraw flow](#backend-withdraw-flow) and [Known limitations](#known-limitations)
-> before building on it.
+> **Status: not audited, not for mainnet funds.** This is the **v0.2** source:
+> upgrade-authority-guarded `initialize`, two-step admin rotation, `request_id`
+> on `withdraw`, optional on-chain withdrawal caps, and `emit_cpi!` events. It
+> has **not** been deployed. The public devnet instance still runs v0.1 and uses
+> one key as both upgrade authority and vault admin
+> (`5ddTS84UFxK8y2qELjvouw7xtcgBAPxk6JuM3FTyLfoa`) — a demo shortcut, not a
+> reference configuration. See [Upgrading from v0.1](#upgrading-from-v01),
+> [Backend withdraw flow](#backend-withdraw-flow) and
+> [Known limitations](#known-limitations).
 
 ---
 
@@ -53,10 +57,10 @@ backend database, which is driven by the events emitted here.
 ├── programs/casino_vault/      # the on-chain program (Rust / Anchor)
 │   └── src/
 │       ├── lib.rs              # declare_id! + instruction entrypoints
-│       ├── instructions/       # initialize, deposit, withdraw, set_paused
+│       ├── instructions/       # initialize, deposit, withdraw, set_paused, admin (rotation + caps)
 │       ├── state.rs            # VaultState
 │       ├── events.rs / errors.rs / constants.rs / utils.rs
-├── scripts/                    # CLI scripts (read / initialize / deposit / withdraw / set_paused)
+├── scripts/                    # CLI scripts (read / initialize / deposit / withdraw / set_paused / propose_admin / accept_admin / set_limits)
 ├── tests/                      # anchor test integration suite
 ├── casinovault-frontend/       # Next.js reference UI (deposit + admin co-signed withdraw)
 ├── .github/workflows/ci.yml    # CI: clippy, cargo + anchor tests, IDL drift, frontend build
@@ -84,18 +88,29 @@ House wallet ─deposit──>  (all funds)
                      Backend listener ──> Database (balances)
 ```
 
-| PDA         | Seeds             | Owner          | Contents                |
-| ----------- | ----------------- | -------------- | ----------------------- |
-| Vault state | `["vault_state"]` | This program   | `VaultState` (42 bytes) |
-| Pool vault  | `["pool_vault"]`  | System Program | All SOL, no data        |
+| PDA             | Seeds                   | Owner          | Contents                 |
+| --------------- | ----------------------- | -------------- | ------------------------ |
+| Vault state     | `["vault_state_v2"]`    | This program   | `VaultState` (175 bytes) |
+| Pool vault      | `["pool_vault"]`        | System Program | All SOL, no data         |
+| Event authority | `["__event_authority"]` | —              | Signs `emit_cpi!` events |
 
 ```rust
 pub struct VaultState {
-    pub admin: Pubkey,   // backend authority; approves withdrawals, owns pause
-    pub vault_bump: u8,  // canonical bump of ["pool_vault"]
-    pub paused: bool,    // emergency switch
+    pub admin: Pubkey,                 // backend authority; approves withdrawals, owns pause
+    pub vault_bump: u8,                // canonical bump of ["pool_vault"]
+    pub paused: bool,                  // emergency switch
+    pub pending_admin: Option<Pubkey>, // proposed by the upgrade authority
+    pub max_withdraw_per_tx: u64,      // 0 = no cap
+    pub max_withdraw_per_window: u64,  // 0 = no cap
+    pub window_seconds: u32,           // window length for the cap above
+    pub window_start: i64,             // unix time the current window began
+    pub window_withdrawn: u64,         // lamports withdrawn in the current window
+    pub reserved: [u8; 64],            // room for future fields
 }
 ```
+
+The upgrade authority controls who the admin is and how much can leave the
+pool; the admin approves individual withdrawals and can pause.
 
 ---
 
@@ -103,9 +118,9 @@ pub struct VaultState {
 
 | Key                    | File                                      | Role                                                                                       | Lose it and…                                                     |
 | ---------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| **Deployer / upgrade** | `wallet.json`                             | Pays to upload the program. Becomes the program's **upgrade authority**.                   | You can never upgrade or close the program.                      |
+| **Deployer / upgrade** | `wallet.json`                             | Pays to upload the program. Becomes the **upgrade authority**: runs `initialize`, rotates the admin, sets withdrawal caps. | You can never upgrade the program, rotate the admin, or change caps. |
 | **Program keypair**    | `target/deploy/casino_vault-keypair.json` | Its pubkey **is** the program ID. Only needed for the first deploy to that address.        | You cannot deploy fresh to the same address (upgrades still work). |
-| **Admin**              | `keys/admin.json`                         | Written into `VaultState.admin` by `initialize`. Co-signs every withdrawal, owns pause.    | Withdrawals and pause are permanently frozen.                    |
+| **Admin**              | `keys/admin.json`                         | Written into `VaultState.admin` by `initialize`. Co-signs every withdrawal, owns pause.    | Withdrawals stop until the upgrade authority rotates in a new admin. |
 
 All three are secrets. Back them up offline (password manager / encrypted
 drive / hardware wallet / multisig for mainnet) **before** you deploy. Use three
@@ -224,7 +239,7 @@ Do this **immediately** after deploy. Follow
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=./keys/admin.json
 
-npm run read                 # admin = your admin pubkey, paused = false
+npm run read                 # admin = your admin pubkey, paused = false, no caps
 npm run deposit -- 0.5       # house bankroll into the pool
 npm run withdraw -- 0.1      # admin signs as both user and admin
 npm run read                 # pool balance reflects the moves
@@ -238,10 +253,10 @@ any tx signature.
 ## Step-by-step: create and register the admin key
 
 The admin is **not** configured in `Anchor.toml` or in the program source. It is
-set on-chain by the `initialize` instruction:
-
-> **Whoever signs `initialize` becomes `VaultState.admin` permanently.** There
-> is no `update_admin` instruction yet; changing admin needs a program upgrade.
+set on-chain by the `initialize` instruction, which only the program's
+**upgrade authority** (`wallet.json`) can send. The admin co-signs to prove it
+controls the key. Later changes go through
+[`propose_admin` / `accept_admin`](#propose_admin--accept_admin--rotate-the-admin).
 
 ### 1. Generate a dedicated admin keypair
 
@@ -271,7 +286,7 @@ Copy `keys/admin.json` to secure offline storage now. If it is lost after
 
 ### 3. Fund the admin
 
-`initialize` pays rent for both PDAs (~0.002 SOL). The admin does **not** pay
+The upgrade authority pays the rent in `initialize` (~0.002 SOL). The admin does **not** pay
 fees for player withdrawals — the user is the fee payer, both in the reference
 API route and in `scripts/withdraw.ts` with `ADMIN_WALLET`. The admin pays only
 when it is also the recipient (house withdrawals).
@@ -281,16 +296,17 @@ solana airdrop 2 $(solana-keygen pubkey keys/admin.json) --url https://api.devne
 solana balance $(solana-keygen pubkey keys/admin.json) --url https://api.devnet.solana.com
 ```
 
-### 4. Run `initialize` signed by the admin
+### 4. Run `initialize` as the upgrade authority, co-signed by the admin
 
 ```bash
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
-ANCHOR_WALLET=./keys/admin.json \
+ANCHOR_WALLET=./wallet.json \
+ADMIN_WALLET=./keys/admin.json \
 npm run initialize
 ```
 
-The script refuses to run twice and prints a warning if the on-chain admin does
-not match your wallet.
+The script checks that `ANCHOR_WALLET` is the on-chain upgrade authority and
+refuses to run twice.
 
 ### 5. Verify
 
@@ -300,17 +316,15 @@ ANCHOR_WALLET=./keys/admin.json \
 npm run read
 ```
 
-`admin:` must equal `solana-keygen pubkey keys/admin.json`. If it does not,
-someone else initialized the vault first — **do not accept deposits**; redeploy
-under a new program ID.
+`admin:` must equal `solana-keygen pubkey keys/admin.json`.
 
 ### Rules
 
 - `initialize` runs **once** per program ID. A second call fails with
   "account already in use".
-- Send `initialize` right after deploy. The current program lets **any**
-  signer initialize, so whoever lands first becomes admin (see
-  [Known limitations](#known-limitations)).
+- Only the upgrade authority can initialize, so nobody can front-run you. Do it
+  **before** making the program immutable (`--final`): an immutable program has
+  no upgrade authority and can never be initialized.
 - Before routing real money, every backend should assert
   `vault_state.admin == <expected admin pubkey>` at startup.
 
@@ -411,9 +425,34 @@ anchor upgrade target/deploy/casino_vault.so \
 ```
 
 `VaultState` and the pool balance survive upgrades. Do **not** change the
-`VaultState` layout or PDA seeds without a migration plan.
+`VaultState` layout or PDA seeds without a migration plan; new fields should
+come out of `reserved`.
 
-Rotate the upgrade authority (for example, to a multisig):
+### Upgrading from v0.1
+
+v0.2 keeps the pool vault seed (`["pool_vault"]`) and moves the state to a new
+seed (`["vault_state_v2"]`), so a v0.1 deployment can be upgraded **in place**
+without moving funds:
+
+1. `set_paused true` on v0.1 and stop issuing approvals; let outstanding holds
+   expire (see [Backend withdraw flow](#backend-withdraw-flow)).
+2. `anchor build`, then `anchor upgrade` as above. From this moment every
+   instruction fails until step 3 — the v0.1 state account is ignored, not
+   misread.
+3. Run `npm run initialize` with `ANCHOR_WALLET` = upgrade authority and
+   `ADMIN_WALLET` = admin. It creates `["vault_state_v2"]`, keeps the existing
+   pool balance (the event's `vault_balance` shows it), and starts unpaused.
+4. Optionally `npm run set-limits`, then deploy backends built against the v0.2
+   IDL (`withdraw(amount, request_id)`; two extra accounts appended to
+   `deposit`/`withdraw`).
+
+The old 42-byte `["vault_state"]` account stays behind holding its ~0.0012 SOL
+rent; it is inert.
+
+### Upgrade authority
+
+Rotate the upgrade authority (for example, to a multisig). This also hands over
+admin rotation and caps:
 
 ```bash
 solana program set-upgrade-authority <PROGRAM_ID> \
@@ -440,22 +479,27 @@ solana program set-upgrade-authority <PROGRAM_ID> --final --url <RPC_URL>
    QuickNode, Alchemy).
 6. Fund the deployer with enough SOL for the program upload (check
    `solana rent <bytes>` against the `.so` size, ×2 buffer).
-7. Deploy → `initialize` with the admin in the same session → `npm run read`
-   to confirm admin.
-8. Backend asserts on-chain admin at startup and reconciles
+7. Deploy → `initialize` (upgrade authority + admin) → `npm run read` to
+   confirm admin.
+8. Set withdrawal caps with `npm run set-limits` sized to what you could lose
+   if the admin key leaked before you noticed.
+9. Backend asserts on-chain admin at startup and reconciles
    `pool balance` vs `sum(db balances) + house bankroll + rent reserve`.
-9. Rehearse `set_paused true/false` before going live.
+10. Rehearse `set_paused true/false` and an admin rotation before going live.
 
 ---
 
 ## Instruction reference
 
-| Instruction  | Args           | Who signs        | What it does                                   |
-| ------------ | -------------- | ---------------- | ---------------------------------------------- |
-| `initialize` | —              | **admin**        | Creates PDAs, sets `admin`, parks rent reserve |
-| `deposit`    | `amount: u64`  | **depositor**    | Wallet → pool, emits `DepositEvent`            |
-| `withdraw`   | `amount: u64`  | **user + admin** | Pool → user, emits `WithdrawEvent`             |
-| `set_paused` | `paused: bool` | **admin**        | Freezes / unfreezes deposits and withdrawals   |
+| Instruction     | Args                                                    | Who signs                         | What it does                                   |
+| --------------- | ------------------------------------------------------- | --------------------------------- | ---------------------------------------------- |
+| `initialize`    | —                                                       | **upgrade authority + admin**     | Creates state, sets `admin`, parks rent reserve |
+| `deposit`       | `amount: u64`                                           | **depositor**                     | Wallet → pool, emits `DepositEvent`            |
+| `withdraw`      | `amount: u64`, `request_id: u64`                        | **user + admin**                  | Pool → user, emits `WithdrawEvent`             |
+| `set_paused`    | `paused: bool`                                          | **admin**                         | Freezes / unfreezes deposits and withdrawals   |
+| `propose_admin` | `new_admin: Option<Pubkey>`                             | **upgrade authority**             | Sets (or clears) the pending admin             |
+| `accept_admin`  | —                                                       | **pending admin**                 | Pending admin becomes admin                    |
+| `set_limits`    | `max_withdraw_per_tx`, `max_withdraw_per_window`, `window_seconds` | **upgrade authority** | Sets withdrawal caps (`0` = none)              |
 
 Amounts are **lamports** (`1 SOL = 1_000_000_000`). The CLI scripts take SOL and
 convert.
@@ -467,28 +511,34 @@ All scripts read two env vars:
 | `ANCHOR_PROVIDER_URL` | `https://api.devnet.solana.com` |
 | `ANCHOR_WALLET`       | `./keys/admin.json`             |
 
+The `program_data`, `event_authority` and `program` accounts are derived
+automatically by the Anchor client; you never pass them by hand.
+
 ### `initialize` — create vault + set admin
 
-Accounts: `admin` (signer, payer), `vault_state`, `pool_vault`, `system_program`
+Accounts: `authority` (signer, payer — must be the upgrade authority), `admin`
+(signer), `program_data`, `vault_state`, `pool_vault`, `system_program`
 
 ```bash
-ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/admin.json npm run initialize
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./wallet.json ADMIN_WALLET=./keys/admin.json npm run initialize
 ```
 
 ```ts
 await program.methods
   .initialize()
-  .accountsPartial({ admin: adminPubkey, vaultState, poolVault, systemProgram: SystemProgram.programId })
-  .signers([adminKeypair])
+  .accountsPartial({ authority: upgradeAuthority, admin: adminPubkey, vaultState, poolVault, systemProgram: SystemProgram.programId })
+  .signers([upgradeAuthorityKeypair, adminKeypair])
   .rpc();
 ```
 
-One-shot setup. Pays rent for both PDAs. Emits `VaultInitializedEvent`. Fails if
-already initialized.
+One-shot setup. Fails with `NotUpgradeAuthority` (6006) for any other signer and
+"already in use" if already initialized. Tops the pool up to the rent reserve
+only if it holds less. Emits `VaultInitializedEvent`.
 
 ### `deposit` — fund the pool
 
-Accounts: `depositor` (signer), `vault_state`, `pool_vault`, `system_program`
+Accounts: `depositor` (signer), `vault_state`, `pool_vault`, `system_program`,
+`event_authority`, `program`
 
 ```bash
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/player.json npm run deposit -- 0.25
@@ -508,15 +558,19 @@ on-chain per-user balance.
 
 ### `withdraw` — release SOL (admin-approved)
 
-Accounts: `user` (signer, recipient), `admin` (signer), `vault_state`,
-`pool_vault`, `system_program`
+Accounts: `user` (signer, recipient), `admin` (signer), `vault_state`
+(writable — tracks the cap window), `pool_vault`, `system_program`,
+`event_authority`, `program`
+
+Instruction data: 8-byte discriminator, `amount` (u64 LE), `request_id`
+(u64 LE) — 24 bytes.
 
 ```bash
-# Player withdraw with admin co-sign
+# Player withdraw with admin co-sign; optional second arg is the request_id
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
 ANCHOR_WALLET=./keys/player.json \
 ADMIN_WALLET=./keys/admin.json \
-npm run withdraw -- 0.1
+npm run withdraw -- 0.1 1001
 
 # House withdraw (admin is both user and admin)
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/admin.json npm run withdraw -- 0.1
@@ -524,7 +578,7 @@ ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/admin.jso
 
 ```ts
 await program.methods
-  .withdraw(new BN(100_000_000)) // 0.1 SOL
+  .withdraw(new BN(100_000_000), new BN(holdId)) // 0.1 SOL, backend hold ID
   .accountsPartial({ user: playerPubkey, admin: adminPubkey, vaultState, poolVault, systemProgram: SystemProgram.programId })
   .signers([playerKeypair, adminKeypair])
   .rpc();
@@ -532,9 +586,12 @@ await program.methods
 
 - Requires **both** signatures; a user alone cannot drain the pool.
 - Funds always go to the signing `user` (no destination parameter).
-- Capped at pool balance minus the rent reserve.
-- Emits `WithdrawEvent`; debit the DB only **after** confirmation.
-- Fails if admin ≠ `VaultState.admin`, amount is 0, insufficient funds, or paused.
+- Capped at pool balance minus the rent reserve, and by any caps from
+  `set_limits` (house withdrawals included).
+- `request_id` is echoed in `WithdrawEvent`; the program does not enforce
+  uniqueness — the backend's hold table does.
+- Fails if admin ≠ `VaultState.admin`, amount is 0, insufficient funds, paused,
+  `WithdrawLimitExceeded` or `WindowLimitExceeded`.
 
 ### `set_paused` — emergency switch
 
@@ -552,17 +609,60 @@ await program.methods.setPaused(true).accountsPartial({ admin: adminPubkey, vaul
 While paused, `deposit` and `withdraw` return `VaultPaused` (6005). Emits
 `PauseStateChangedEvent`.
 
+### `propose_admin` / `accept_admin` — rotate the admin
+
+Accounts: `propose_admin` — `authority` (signer, upgrade authority),
+`program_data`, `vault_state`. `accept_admin` — `new_admin` (signer),
+`vault_state`.
+
+```bash
+# 1. Upgrade authority proposes (use `none` to cancel)
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./wallet.json \
+npm run propose-admin -- <NEW_ADMIN_PUBKEY>
+
+# 2. The new admin accepts (needs a little SOL for the fee)
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/new-admin.json \
+npm run accept-admin
+```
+
+The old admin keeps working until the new one accepts, so a typo in the
+proposal can't lock the vault. The admin itself **cannot** propose: if the
+admin key leaks, the attacker cannot rotate itself in or block recovery. For an
+incident, put both instructions in one transaction signed by the upgrade
+authority and the replacement key (see the "recovers from a leaked admin" test).
+Emits `AdminProposedEvent` and `AdminChangedEvent`.
+
+### `set_limits` — on-chain withdrawal caps
+
+Accounts: `authority` (signer, upgrade authority), `program_data`,
+`vault_state`
+
+```bash
+# At most 5 SOL per withdrawal and 50 SOL per hour; `0 0 0` removes all caps
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./wallet.json \
+npm run set-limits -- 5 50 3600
+```
+
+- `max_withdraw_per_tx` bounds a single withdrawal.
+- `max_withdraw_per_window` bounds the total over a tumbling window of
+  `window_seconds`: the first withdrawal after the window expires starts a new
+  one. Both must be zero or both non-zero (`InvalidLimits`).
+- Setting limits restarts the window. Emits `LimitsUpdatedEvent`.
+
+Caps are the backstop for a compromised backend: a stolen admin key can drain
+at most one window's worth before you rotate it.
+
 ### Reads (no instruction — plain RPC fetches)
 
 | What you need            | How                                               |
 | ------------------------ | ------------------------------------------------- |
-| Admin, pause, vault bump | `program.account.vaultState.fetch(vaultStatePda)` |
+| Admin, pause, caps       | `program.account.vaultState.fetch(vaultStatePda)` |
 | Pool SOL balance         | `connection.getBalance(poolVaultPda)`             |
 | Withdrawable SOL         | `poolBalance - rentExemptMinimum(0)`              |
-| Whether vault is live    | Account exists at `["vault_state"]`               |
+| Whether vault is live    | Account exists at `["vault_state_v2"]`            |
 
 ```ts
-const [vaultState] = PublicKey.findProgramAddressSync([Buffer.from("vault_state")], PROGRAM_ID);
+const [vaultState] = PublicKey.findProgramAddressSync([Buffer.from("vault_state_v2")], PROGRAM_ID);
 const [poolVault] = PublicKey.findProgramAddressSync([Buffer.from("pool_vault")], PROGRAM_ID);
 
 const state = await program.account.vaultState.fetch(vaultState);
@@ -573,11 +673,11 @@ const withdrawable = Math.max(0, poolLamports - rent);
 
 ### Backend withdraw flow
 
-> **Debit at approval, not at confirmation.** The program has no request ID or
-> nonce on `withdraw`, so it cannot tell two approvals apart. If you only debit
-> after a `WithdrawEvent` lands, a user with 1 SOL can request N approvals in a
-> few seconds — each gets a fresh blockhash, each passes the balance check —
-> and submit all N for N SOL.
+> **Debit at approval, not at confirmation.** Each approval is an independent
+> transaction with its own blockhash; the program cannot tell whether two
+> approvals spend the same off-chain balance. If you only debit after a
+> `WithdrawEvent` lands, a user with 1 SOL can request N approvals in a few
+> seconds — each passes the balance check — and submit all N for N SOL.
 
 The safe sequence:
 
@@ -585,8 +685,10 @@ The safe sequence:
    `SELECT … FOR UPDATE`, or an atomic conditional update).
 2. Check balance, limits, and anti-cheat. Reject if `available < amount`.
 3. **Place a hold** for `amount` in the same transaction (move it from
-   `available` to `pending_withdrawal`, keyed by a withdrawal ID). Commit.
-4. Fetch a blockhash, build `withdraw` with the user as fee payer, partially
+   `available` to `pending_withdrawal`, keyed by a withdrawal ID that fits in a
+   u64). Commit.
+4. Fetch a blockhash, build `withdraw(amount, request_id = hold ID)` with the
+   user as fee payer, partially
    sign with the **admin** key. Store the transaction signature and
    `lastValidBlockHeight` on the hold.
 5. Return the transaction; the user signs and submits.
@@ -600,8 +702,8 @@ Allow at most one open hold per user if you want the simplest invariant.
 
 Two more rules for the listener:
 
-- `WithdrawEvent` cannot be matched to an approval except by transaction
-  signature — reconcile holds by signature, not by amount.
+- Match `WithdrawEvent.request_id` to the hold (and check `user` and `amount`
+  agree). Never settle by amount alone.
 - SOL sent to the pool PDA with a plain System transfer produces **no**
   `DepositEvent`. Never credit balances from pool balance changes; the
   reconciliation in the [Mainnet checklist](#mainnet-checklist) covers the
@@ -611,31 +713,43 @@ Two more rules for the listener:
 
 ## Events and errors
 
-| Event                    | Fields                                                  |
-| ------------------------ | ------------------------------------------------------- |
-| `VaultInitializedEvent`  | `admin`, `vault_bump`, `rent_reserve`, `timestamp`      |
-| `DepositEvent`           | `user`, `amount`, `vault_balance`, `timestamp`          |
-| `WithdrawEvent`          | `user`, `admin`, `amount`, `vault_balance`, `timestamp` |
-| `PauseStateChangedEvent` | `admin`, `paused`, `timestamp`                          |
+| Event                    | Fields                                                                 |
+| ------------------------ | ---------------------------------------------------------------------- |
+| `VaultInitializedEvent`  | `authority`, `admin`, `vault_bump`, `rent_reserve`, `vault_balance`, `timestamp` |
+| `DepositEvent`           | `user`, `amount`, `vault_balance`, `timestamp`                         |
+| `WithdrawEvent`          | `user`, `admin`, `request_id`, `amount`, `vault_balance`, `timestamp`  |
+| `PauseStateChangedEvent` | `admin`, `paused`, `timestamp`                                         |
+| `AdminProposedEvent`     | `authority`, `current_admin`, `pending_admin`, `timestamp`             |
+| `AdminChangedEvent`      | `previous_admin`, `new_admin`, `timestamp`                             |
+| `LimitsUpdatedEvent`     | `authority`, `max_withdraw_per_tx`, `max_withdraw_per_window`, `window_seconds`, `timestamp` |
 
-| Code | Name                      | Meaning                          |
-| ---- | ------------------------- | -------------------------------- |
-| 6000 | `Unauthorized`            | Wrong admin                      |
-| 6001 | `InvalidAmount`           | Zero amount                      |
-| 6002 | `InsufficientFunds`       | Not enough lamports              |
-| 6003 | `VaultAlreadyInitialized` | Client mapping for init race     |
-| 6004 | `MathOverflow`            | Checked math overflow            |
-| 6005 | `VaultPaused`             | Deposits / withdrawals suspended |
+| Code | Name                      | Meaning                                         |
+| ---- | ------------------------- | ----------------------------------------------- |
+| 6000 | `Unauthorized`            | Wrong admin                                     |
+| 6001 | `InvalidAmount`           | Zero amount                                     |
+| 6002 | `InsufficientFunds`       | Not enough lamports                             |
+| 6003 | `VaultAlreadyInitialized` | Client mapping for init race                    |
+| 6004 | `MathOverflow`            | Checked math overflow                           |
+| 6005 | `VaultPaused`             | Deposits / withdrawals suspended                |
+| 6006 | `NotUpgradeAuthority`     | Signer is not the program's upgrade authority   |
+| 6007 | `NotPendingAdmin`         | `accept_admin` signer is not the pending admin  |
+| 6008 | `InvalidAdmin`            | Proposed admin is the all-zero key              |
+| 6009 | `InvalidLimits`           | Window cap and window length not set together   |
+| 6010 | `WithdrawLimitExceeded`   | Above the per-transaction cap                   |
+| 6011 | `WindowLimitExceeded`     | Above the cap for the current window            |
 
 The rent reserve — whatever `getMinimumBalanceForRentExemption(0)` returns on
 that cluster — stays in the pool permanently.
 **Never credit it as user balance.** The program and scripts read it dynamically.
 
-Events are emitted with `emit!`, i.e. into program logs. The runtime truncates
-logs at 10 KB per transaction. A plain vault instruction never comes close, but
-a composed transaction (many instructions, or another program CPI-ing in) can,
-and a log-only listener would then miss the event. Index by transaction and
-decode instruction data as a fallback.
+`DepositEvent` and `WithdrawEvent` are emitted **twice**: with `emit!` into
+program logs (what `program.addEventListener` sees) and with `emit_cpi!` as a
+self-CPI whose instruction data carries the event. The runtime truncates logs
+at 10 KB per transaction, which a composed transaction can hit; the CPI copy is
+immune to that. An indexer should read the CPI copy from the transaction's inner
+instructions (first 8 bytes `e445a52e51cb9a1d`, then the event); a websocket
+listener can use the logs. Consume one source and de-duplicate by transaction
+signature. The other events are log-only.
 
 ---
 
@@ -669,8 +783,8 @@ npm run dev        # http://localhost:3000
 | `VAULT_DEMO_MAX_WITHDRAW_SOL`  | server only | Per-request cap for the demo route (default `0.1`)   |
 
 Before asking the wallet to sign, the UI decodes the server's transaction and
-refuses anything other than a single `withdraw` of the requested amount to the
-connected wallet, with the connected wallet as fee payer
+refuses anything other than a single `withdraw` of the requested amount and
+`request_id` to the connected wallet, with the connected wallet as fee payer
 (`src/lib/withdrawTx.ts`). Integrators should keep that check.
 
 See `casinovault-frontend/README.md` for details.
@@ -680,7 +794,8 @@ See `casinovault-frontend/README.md` for details.
 ## Local tests
 
 `anchor test` needs a provider wallet at `wallet.json` (see `Anchor.toml`).
-Any keypair works on localnet:
+Any keypair works on localnet. `[test] upgradeable = true` deploys the program
+with that wallet as upgrade authority, which the authority-gated tests need:
 
 ```bash
 [ -f wallet.json ] || solana-keygen new -o wallet.json --no-bip39-passphrase
@@ -721,8 +836,14 @@ Export both before running any `npm run` script (see
 
 ### `Admin mismatch` / `ADMIN_SECRET_KEY does not match on-chain admin`
 
-The key you are signing with is not the one that ran `initialize`. Run
-`npm run read` to see the on-chain admin.
+The key you are signing with is not the current admin (set by `initialize` or
+the last `accept_admin`). Run `npm run read` to see the on-chain admin.
+
+### `NotUpgradeAuthority` (6006)
+
+`initialize`, `propose_admin` and `set_limits` must be signed by the program's
+upgrade authority. Check it with `solana program show <PROGRAM_ID>` or
+`npm run read`.
 
 ### `Blockhash not found` / `429 Too Many Requests`
 
@@ -742,21 +863,22 @@ The program guarantees only:
 1. Pool lamports move only through this program.
 2. Withdrawals need **user + admin** signatures.
 3. Payouts go only to the signing user.
+4. Only the upgrade authority can initialize, rotate the admin, or change caps.
+5. If caps are set, no sequence of withdrawals exceeds them.
 
-The admin key can approve any withdrawal to any cooperating wallet. Protect it
-like the entire pool balance.
+The admin key can still approve any withdrawal within the caps to any
+cooperating wallet; protect it accordingly. The upgrade authority can replace
+the program outright, so it is the real root of trust — put it in a multisig
+or make the program immutable once you are confident in it.
 
 ---
 
 ## Known limitations
 
-None of these is a bug in the current code; each is a property a reusable
-custody protocol should have and this program (v0.1) does not yet.
-
-| Limitation | Impact | Planned change |
-| ---------- | ------ | -------------- |
-| `initialize` can be front-run | Whoever lands `initialize` first owns the vault. | Require the signer to be the program's upgrade authority. |
-| No admin rotation | A leaked admin can unpause as easily as you can pause; recovery needs a program upgrade. | Two-step `propose_admin` / `accept_admin`, controlled by the upgrade authority. |
-| No request ID on `withdraw` | Backends must hold balances at approval time (see above) and reconcile by signature. | `request_id: u64` argument echoed in `WithdrawEvent`. |
-| Single hot admin key, no on-chain limits | A backend compromise can drain the pool. | Optional per-transaction / per-epoch cap in `VaultState`. |
-| Events only in logs | Log truncation in large composed transactions can hide events. | `emit_cpi!`, or decode instruction data in the listener. |
+| Limitation | Impact | Mitigation |
+| ---------- | ------ | ---------- |
+| Upgrade authority is all-powerful | It can ship new code that moves every lamport. | Multisig (e.g. Squads) with a timelock, or `--final` once stable. Immutable programs cannot rotate admins or change caps. |
+| `request_id` is not enforced unique | Two approvals with the same ID both succeed on-chain. | Uniqueness belongs to the backend's hold table (primary key). |
+| Admin can unpause | A leaked admin can undo a pause. | Rotate the admin (one transaction) instead of relying on pause alone. |
+| Direct transfers emit nothing | SOL sent to the pool with a System transfer has no `DepositEvent`. | Never credit from balance changes; reconcile (Mainnet checklist). |
+| Not audited | — | Get an independent audit before holding mainnet funds. |

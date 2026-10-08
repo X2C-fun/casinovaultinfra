@@ -4,12 +4,13 @@
  * Usage:
  *   ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
  *   ANCHOR_WALLET=./keys/admin.json \
- *   npx ts-node --compiler-options '{"module":"commonjs"}' scripts/read.ts
+ *   npm run read
  */
 
 import {
   derivePoolVaultPda,
   deriveVaultStatePda,
+  fetchUpgradeAuthority,
   lamportsToSol,
   loadProgram,
   loadProvider,
@@ -25,6 +26,14 @@ async function main() {
   console.log("program:", program.programId.toBase58());
   console.log("vault_state PDA:", vaultState.toBase58());
   console.log("pool_vault PDA:", poolVault.toBase58());
+  const upgradeAuthority = await fetchUpgradeAuthority(
+    provider.connection,
+    program.programId,
+  );
+  console.log(
+    "upgrade authority:",
+    upgradeAuthority?.toBase58() ?? "none (immutable)",
+  );
 
   const stateInfo = await provider.connection.getAccountInfo(vaultState);
   if (!stateInfo) {
@@ -41,9 +50,29 @@ async function main() {
   const withdrawable = Math.max(0, poolLamports - rentReserve);
 
   console.log("\n--- VaultState ---");
-  console.log("admin:     ", state.admin.toBase58());
-  console.log("vault_bump:", state.vaultBump);
-  console.log("paused:    ", state.paused);
+  console.log("admin:          ", state.admin.toBase58());
+  console.log("pending admin:  ", state.pendingAdmin?.toBase58() ?? "none");
+  console.log("vault_bump:     ", state.vaultBump);
+  console.log("paused:         ", state.paused);
+  console.log(
+    "max per tx:     ",
+    state.maxWithdrawPerTx.isZero()
+      ? "none"
+      : `${lamportsToSol(BigInt(state.maxWithdrawPerTx.toString()))} SOL`,
+  );
+  if (state.maxWithdrawPerWindow.isZero()) {
+    console.log("max per window: ", "none");
+  } else {
+    const windowEnd = state.windowStart.toNumber() + state.windowSeconds;
+    console.log(
+      "max per window: ",
+      `${lamportsToSol(BigInt(state.maxWithdrawPerWindow.toString()))} SOL per ${state.windowSeconds}s`,
+    );
+    console.log(
+      "window used:    ",
+      `${lamportsToSol(BigInt(state.windowWithdrawn.toString()))} SOL (window ends ${new Date(windowEnd * 1000).toISOString()})`,
+    );
+  }
 
   console.log("\n--- Pool Vault ---");
   console.log(
