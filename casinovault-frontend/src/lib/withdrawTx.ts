@@ -2,15 +2,19 @@ import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 
 import { VAULT_IDL } from "./program";
 import { PROGRAM_ID } from "./constants";
-import { derivePoolVaultPda, deriveVaultStatePda } from "./pdas";
+import {
+  deriveEventAuthorityPda,
+  derivePoolVaultPda,
+  deriveVaultStatePda,
+} from "./pdas";
 
 const WITHDRAW_IX = VAULT_IDL.instructions.find((ix) => ix.name === "withdraw");
 if (!WITHDRAW_IX) {
   throw new Error("IDL is missing the withdraw instruction");
 }
 const WITHDRAW_DISCRIMINATOR = Uint8Array.from(WITHDRAW_IX.discriminator);
-// 8-byte discriminator + u64 amount (little-endian).
-const WITHDRAW_DATA_LEN = 16;
+// 8-byte discriminator + u64 amount + u64 request_id (both little-endian).
+const WITHDRAW_DATA_LEN = 24;
 
 export class UnsafeWithdrawTxError extends Error {
   constructor(reason: string) {
@@ -24,8 +28,8 @@ function fail(reason: string): never {
 
 /**
  * Asserts the server-built transaction is exactly one vault `withdraw` paying
- * `expectedLamports` to the connected wallet, before the wallet is asked to
- * sign it. A compromised or misconfigured server could otherwise return any
+ * `expectedLamports` to the connected wallet under `expectedRequestId`, before
+ * the wallet is asked to sign it. A compromised or misconfigured server could otherwise return any
  * transaction (e.g. a System transfer draining the user) for the user to sign.
  */
 export function assertSafeWithdrawTx(
@@ -33,10 +37,11 @@ export function assertSafeWithdrawTx(
   opts: {
     user: PublicKey;
     expectedLamports: bigint;
+    expectedRequestId: bigint;
     expectedAdmin: PublicKey | null;
   },
 ): void {
-  const { user, expectedLamports, expectedAdmin } = opts;
+  const { user, expectedLamports, expectedRequestId, expectedAdmin } = opts;
 
   if (!tx.feePayer || !tx.feePayer.equals(user)) {
     fail("fee payer is not your wallet");
@@ -63,12 +68,18 @@ export function assertSafeWithdrawTx(
   if (amount !== expectedLamports) {
     fail(`amount ${amount} lamports does not match the ${expectedLamports} you requested`);
   }
+  const requestId = Buffer.from(data).readBigUInt64LE(16);
+  if (requestId !== expectedRequestId) {
+    fail("request ID does not match the approval");
+  }
 
-  // Account order follows the IDL: user, admin, vault_state, pool_vault, system_program.
-  if (ix.keys.length !== 5) {
+  // Account order follows the IDL: user, admin, vault_state, pool_vault,
+  // system_program, then event_authority and program (added by #[event_cpi]).
+  if (ix.keys.length !== 7) {
     fail("unexpected account list");
   }
-  const [userKey, adminKey, stateKey, poolKey, systemKey] = ix.keys;
+  const [userKey, adminKey, stateKey, poolKey, systemKey, eventAuthorityKey, programKey] =
+    ix.keys;
   if (!userKey.pubkey.equals(user) || !userKey.isSigner || !userKey.isWritable) {
     fail("recipient is not your wallet");
   }
@@ -86,6 +97,15 @@ export function assertSafeWithdrawTx(
   }
   if (!systemKey.pubkey.equals(SystemProgram.programId)) {
     fail("system program mismatch");
+  }
+  if (!eventAuthorityKey.pubkey.equals(deriveEventAuthorityPda(PROGRAM_ID)[0])) {
+    fail("event authority mismatch");
+  }
+  if (!programKey.pubkey.equals(PROGRAM_ID)) {
+    fail("program account mismatch");
+  }
+  if (ix.keys.slice(2).some((key) => key.isSigner)) {
+    fail("unexpected signer account");
   }
 
   const signers = new Set(tx.signatures.map((s) => s.publicKey.toBase58()));

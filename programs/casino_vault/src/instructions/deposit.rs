@@ -9,6 +9,10 @@ use crate::state::VaultState;
 use crate::utils::{current_timestamp, transfer_into_vault};
 
 /// Accounts for [`process_deposit`].
+///
+/// `#[event_cpi]` appends the `event_authority` PDA and this program as the
+/// last two accounts, so `DepositEvent` can also be emitted with `emit_cpi!`.
+#[event_cpi]
 #[derive(Accounts)]
 pub struct Deposit<'info> {
     /// Source of the lamports and the key the backend will credit.
@@ -61,12 +65,14 @@ pub fn process_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         amount,
     )?;
 
-    emit!(DepositEvent {
+    let event = DepositEvent {
         user: ctx.accounts.depositor.key(),
         amount,
         vault_balance: ctx.accounts.pool_vault.lamports(),
         timestamp: current_timestamp()?,
-    });
+    };
+    emit!(event.clone());
+    emit_cpi!(event);
 
     Ok(())
 }

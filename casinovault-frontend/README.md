@@ -56,15 +56,17 @@ Never put `ADMIN_SECRET_KEY` in a `NEXT_PUBLIC_*` variable.
 1. User enters an amount; the UI parses it to exact lamports (plain decimals,
    at most 9 places, at least 1 lamport).
 2. Browser calls `POST /api/withdraw` with `{ user, amountLamports }`.
-3. The API (if enabled) checks the cap, pool funds, pause state, and that
-   `ADMIN_SECRET_KEY` matches `VaultState.admin`, then builds `withdraw`,
-   **partially signs** as admin, and returns the base64 transaction plus its
+3. The API (if enabled) checks the demo cap, pool funds, pause state, the
+   on-chain withdrawal caps, and that `ADMIN_SECRET_KEY` matches
+   `VaultState.admin`. It then builds `withdraw(amount, request_id)` with a
+   random 64-bit `request_id` (a real backend uses its hold ID), **partially
+   signs** as admin, and returns the base64 transaction, `requestId`,
    `blockhash` and `lastValidBlockHeight`.
 4. **Before the wallet is prompted**, the UI decodes the transaction and
    refuses to sign unless it is exactly one `withdraw` instruction to this
-   program, for the requested amount, paying the connected wallet, with the
-   connected wallet as fee payer and only the user and admin as signers
-   (`src/lib/withdrawTx.ts`).
+   program, for the requested amount and `requestId`, paying the connected
+   wallet, with the connected wallet as fee payer, the expected PDAs and event
+   accounts, and only the user and admin as signers (`src/lib/withdrawTx.ts`).
 5. The wallet signs; the UI submits and confirms with
    `{ signature, blockhash, lastValidBlockHeight }`, so an expired transaction
    fails instead of hanging.
@@ -87,3 +89,7 @@ need network access.
 - `@solana/wallet-adapter-react` + `react-ui` + `wallets`
 - `@coral-xyz/anchor` 0.32 + `@solana/web3.js`
 - Default program ID: `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` (devnet demo)
+
+This branch targets program **v0.2**. The devnet demo still runs v0.1, whose
+state lives at a different PDA, so against that deployment the UI reports the
+vault as not initialized until the program is upgraded and re-initialized.

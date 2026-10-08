@@ -14,6 +14,7 @@
  * ============================================================================
  */
 
+import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   Connection,
@@ -137,7 +138,8 @@ async function rentReserve(connection: Connection): Promise<number> {
  * POST { user: base58, amountLamports: string }
  *
  * Builds a withdraw instruction, signs it with the server-side admin key, and
- * returns a partially signed transaction for the user wallet to finish.
+ * returns a partially signed transaction for the user wallet to finish, plus
+ * the `requestId` echoed on-chain in `WithdrawEvent`.
  */
 export async function POST(req: NextRequest) {
   if (!demoEnabled()) {
@@ -189,6 +191,11 @@ export async function POST(req: NextRequest) {
     const state = program.coder.accounts.decode<{
       admin: PublicKey;
       paused: boolean;
+      maxWithdrawPerTx: BN;
+      maxWithdrawPerWindow: BN;
+      windowSeconds: number;
+      windowStart: BN;
+      windowWithdrawn: BN;
     }>("vaultState", stateInfo.data);
     if (!state.admin.equals(admin.publicKey)) {
       console.error(
@@ -205,8 +212,29 @@ export async function POST(req: NextRequest) {
       throw new HttpError(400, "Insufficient pool funds for this withdrawal");
     }
 
+    // Mirror the on-chain caps so the user gets a clear error instead of a
+    // failed transaction. The program remains the source of truth.
+    const perTx = BigInt(state.maxWithdrawPerTx.toString());
+    if (perTx > 0n && lamports > perTx) {
+      throw new HttpError(400, "Amount exceeds the vault's per-withdrawal limit");
+    }
+    const perWindow = BigInt(state.maxWithdrawPerWindow.toString());
+    if (perWindow > 0n) {
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      const start = BigInt(state.windowStart.toString());
+      const windowOpen = now >= start && now < start + BigInt(state.windowSeconds);
+      const used = windowOpen ? BigInt(state.windowWithdrawn.toString()) : 0n;
+      if (used + lamports > perWindow) {
+        throw new HttpError(429, "The vault's withdrawal limit for this period has been reached");
+      }
+    }
+
+    // A real backend passes the ID of the balance hold it just created. The
+    // demo has no ledger, so it uses a random 64-bit ID.
+    const requestId = randomBytes(8).readBigUInt64LE(0);
+
     const ix = await program.methods
-      .withdraw(new BN(lamports.toString()))
+      .withdraw(new BN(lamports.toString()), new BN(requestId.toString()))
       .accountsPartial({
         user,
         admin: admin.publicKey,
@@ -232,6 +260,7 @@ export async function POST(req: NextRequest) {
         .toString("base64"),
       admin: admin.publicKey.toBase58(),
       amountLamports: lamports.toString(),
+      requestId: requestId.toString(),
       blockhash,
       lastValidBlockHeight,
     });

@@ -16,11 +16,21 @@ import { assert } from "chai";
 import { CasinoVault } from "../target/types/casino_vault";
 
 /** Seeds, mirrored from `programs/casino_vault/src/constants.rs`. */
-export const VAULT_STATE_SEED = Buffer.from("vault_state");
+export const VAULT_STATE_SEED = Buffer.from("vault_state_v2");
 export const POOL_VAULT_SEED = Buffer.from("pool_vault");
 
-/** Byte length of `VaultState`: discriminator + admin + bump + paused flag. */
-export const VAULT_STATE_SIZE = 8 + 32 + 1 + 1;
+/**
+ * Byte length of `VaultState`: discriminator + admin + bump + paused +
+ * pending_admin (Option<Pubkey>) + three u64 caps/counters + u32 window
+ * length + i64 window start + 64 reserved bytes.
+ */
+export const VAULT_STATE_SIZE =
+  8 + 32 + 1 + 1 + (1 + 32) + 8 + 8 + 4 + 8 + 8 + 64;
+
+/** Tag Anchor prefixes to `emit_cpi!` instruction data (`EVENT_IX_TAG_LE`). */
+const EVENT_IX_TAG_LE = Buffer.from([
+  0xe4, 0x45, 0xa5, 0x2e, 0x51, 0xcb, 0x9a, 0x1d,
+]);
 
 /** Derives the singleton vault state PDA. */
 export function deriveVaultStatePda(programId: PublicKey): [PublicKey, number] {
@@ -81,7 +91,10 @@ export interface TxDetails {
   fee: number;
   /** Account that paid the fee, i.e. the first signer of the message. */
   feePayer: PublicKey;
+  /** Events decoded from `Program data:` log lines (`emit!`). */
   events: { name: string; data: any }[];
+  /** Events decoded from self-CPI instruction data (`emit_cpi!`). */
+  cpiEvents: { name: string; data: any }[];
 }
 
 /** Fetches the fee paid and the program events emitted by a transaction. */
@@ -102,24 +115,42 @@ export async function getTxDetails(
     data: event.data,
   }));
 
-  // The fee payer is always the first signer of the compiled message.
-  const feePayer = tx!.transaction.message.staticAccountKeys[0];
+  const accountKeys = tx!.transaction.message.staticAccountKeys;
+  const cpiEvents: { name: string; data: any }[] = [];
+  for (const inner of tx!.meta!.innerInstructions ?? []) {
+    for (const ix of inner.instructions) {
+      if (!accountKeys[ix.programIdIndex]?.equals(program.programId)) continue;
+      const data = Buffer.from(anchor.utils.bytes.bs58.decode(ix.data));
+      if (!data.subarray(0, 8).equals(EVENT_IX_TAG_LE)) continue;
+      const event = program.coder.events.decode(
+        data.subarray(8).toString("base64"),
+      );
+      if (event) cpiEvents.push({ name: event.name, data: event.data });
+    }
+  }
 
-  return { fee: tx!.meta!.fee, feePayer, events };
+  // The fee payer is always the first signer of the compiled message.
+  const feePayer = accountKeys[0];
+
+  return { fee: tx!.meta!.fee, feePayer, events, cpiEvents };
 }
 
 /**
  * Returns the single event with `name` (matched case-insensitively, since the
  * IDL exposes camelCase names) and fails if it is missing or duplicated.
  */
-export function expectEvent(details: TxDetails, name: string): any {
-  const matches = details.events.filter(
+export function expectEvent(
+  details: TxDetails,
+  name: string,
+  source: "events" | "cpiEvents" = "events",
+): any {
+  const matches = details[source].filter(
     (event) => event.name.toLowerCase() === name.toLowerCase(),
   );
   assert.lengthOf(
     matches,
     1,
-    `expected exactly one ${name}, got [${details.events
+    `expected exactly one ${name} in ${source}, got [${details[source]
       .map((e) => e.name)
       .join(", ")}]`,
   );

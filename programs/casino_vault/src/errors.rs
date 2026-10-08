@@ -2,7 +2,8 @@
 //!
 //! Anchor offsets user-defined errors by `6000`, so `Unauthorized` is `6000`,
 //! `InvalidAmount` is `6001`, and so on. The backend should match on these
-//! numeric codes rather than on error strings.
+//! numeric codes rather than on error strings. New variants are only ever
+//! appended so existing codes never change.
 
 use anchor_lang::prelude::*;
 
@@ -40,4 +41,31 @@ pub enum VaultError {
     /// Deposits and withdrawals are suspended by the admin.
     #[msg("The vault is paused")]
     VaultPaused,
+
+    /// The signer is not the program's upgrade authority, or the supplied
+    /// program data account does not belong to this program.
+    #[msg("Unauthorized: signer is not the program upgrade authority")]
+    NotUpgradeAuthority,
+
+    /// `accept_admin` was signed by a key that is not the pending admin, or no
+    /// admin transfer is pending.
+    #[msg("Signer is not the pending admin")]
+    NotPendingAdmin,
+
+    /// The proposed admin is the default (all-zero) public key.
+    #[msg("Invalid admin public key")]
+    InvalidAdmin,
+
+    /// Window limit and window length must be set together (both zero to
+    /// disable, both non-zero to enable).
+    #[msg("Invalid withdrawal limits")]
+    InvalidLimits,
+
+    /// The withdrawal exceeds the per-transaction cap.
+    #[msg("Withdrawal exceeds the per-transaction limit")]
+    WithdrawLimitExceeded,
+
+    /// The withdrawal would exceed the cap for the current time window.
+    #[msg("Withdrawal exceeds the limit for the current window")]
+    WindowLimitExceeded,
 }

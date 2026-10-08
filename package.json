@@ -1,9 +1,9 @@
 {
   "name": "casino-vault",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
-  "description": "Anchor program that custodies player SOL for the casino backend.",
+  "description": "Anchor program that holds pooled player SOL for a casino backend, with admin-approved withdrawals.",
   "scripts": {
     "build": "anchor build",
     "test": "anchor test",
@@ -14,6 +14,9 @@
     "deposit": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/deposit.ts",
     "withdraw": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/withdraw.ts",
     "set-paused": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/set_paused.ts",
+    "propose-admin": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/propose_admin.ts",
+    "accept-admin": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/accept_admin.ts",
+    "set-limits": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/set_limits.ts",
     "lint": "prettier --check \"tests/**/*.ts\" \"scripts/**/*.ts\"",
     "lint:fix": "prettier --write \"tests/**/*.ts\" \"scripts/**/*.ts\""
   },

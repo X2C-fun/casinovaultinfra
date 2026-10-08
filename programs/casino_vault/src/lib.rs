@@ -3,8 +3,9 @@
 //! A custody-only SOL vault built around a single shared pool. Two singleton
 //! PDAs exist for the whole program:
 //!
-//! * `["vault_state"]` — [`state::VaultState`], holding the backend admin
-//!   authority, the pool vault bump and the pause switch.
+//! * `["vault_state_v2"]` — [`state::VaultState`], holding the backend admin
+//!   authority, a pending admin, the pool vault bump, the pause switch and the
+//!   optional withdrawal caps.
 //! * `["pool_vault"]` — a data-less, system-owned account holding every lamport:
 //!   player deposits and the house bankroll together.
 //!
@@ -16,17 +17,22 @@
 //!
 //! ## Authority model
 //!
-//! | Instruction   | User signs | Admin signs |
-//! |---------------|------------|-------------|
-//! | `initialize`  | n/a        | yes         |
-//! | `deposit`     | yes        | no          |
-//! | `withdraw`    | yes        | yes         |
-//! | `set_paused`  | n/a        | yes         |
+//! | Instruction     | Signers                                   |
+//! |-----------------|-------------------------------------------|
+//! | `initialize`    | upgrade authority + admin                 |
+//! | `deposit`       | depositor                                 |
+//! | `withdraw`      | user + admin                              |
+//! | `set_paused`    | admin                                     |
+//! | `propose_admin` | upgrade authority                         |
+//! | `accept_admin`  | pending admin                             |
+//! | `set_limits`    | upgrade authority                         |
 //!
 //! Anyone may pay into the pool. Money only leaves it when *both* the recipient
 //! and the admin sign, and it can only go to the signing recipient — the
 //! destination is not a parameter, so a stolen admin key cannot redirect a
-//! payout on its own.
+//! payout on its own. The upgrade authority (which should be cold storage or a
+//! multisig) controls who the admin is and how much can leave per transaction
+//! and per time window.
 
 use anchor_lang::prelude::*;
 
@@ -49,8 +55,9 @@ declare_id!("DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY");
 pub mod casino_vault {
     use super::*;
 
-    /// Creates the singleton vault state and pool vault, registering the signing
-    /// admin as the withdrawal authority. Runs exactly once per deployment.
+    /// Creates the singleton vault state, registering the signing admin as the
+    /// withdrawal authority. Only the upgrade authority may call it, and only
+    /// once per deployment.
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         instructions::initialize::process_initialize(ctx)
     }
@@ -61,13 +68,39 @@ pub mod casino_vault {
     }
 
     /// Releases `amount` lamports from the pool vault to the signing user.
-    /// Requires the admin's signature.
-    pub fn withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
-        instructions::withdraw::process_withdraw(ctx, amount)
+    /// Requires the admin's signature. `request_id` is echoed in
+    /// `WithdrawEvent`.
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64, request_id: u64) -> Result<()> {
+        instructions::withdraw::process_withdraw(ctx, amount, request_id)
     }
 
     /// Suspends or resumes deposits and withdrawals. Admin only.
     pub fn set_paused(ctx: Context<SetPaused>, paused: bool) -> Result<()> {
         instructions::set_paused::process_set_paused(ctx, paused)
+    }
+
+    /// Proposes a new admin (`None` cancels). Upgrade authority only.
+    pub fn propose_admin(ctx: Context<ProposeAdmin>, new_admin: Option<Pubkey>) -> Result<()> {
+        instructions::admin::process_propose_admin(ctx, new_admin)
+    }
+
+    /// Completes an admin transfer. Signed by the pending admin.
+    pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
+        instructions::admin::process_accept_admin(ctx)
+    }
+
+    /// Sets the withdrawal caps; `0` disables a cap. Upgrade authority only.
+    pub fn set_limits(
+        ctx: Context<SetLimits>,
+        max_withdraw_per_tx: u64,
+        max_withdraw_per_window: u64,
+        window_seconds: u32,
+    ) -> Result<()> {
+        instructions::admin::process_set_limits(
+            ctx,
+            max_withdraw_per_tx,
+            max_withdraw_per_window,
+            window_seconds,
+        )
     }
 }

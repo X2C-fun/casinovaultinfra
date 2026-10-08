@@ -44,6 +44,9 @@ export function WithdrawPanel({
     try {
       setBusy(true);
       const lamports = solToLamports(amount);
+      if (vault.maxWithdrawPerTx > 0n && lamports > vault.maxWithdrawPerTx) {
+        throw new Error("Amount exceeds the vault's per-withdrawal limit.");
+      }
 
       // 1) Backend (this Next API) checks pool + signs as admin.
       const res = await fetch("/api/withdraw", {
@@ -57,12 +60,15 @@ export function WithdrawPanel({
       const payload = (await res.json().catch(() => ({}))) as {
         error?: string;
         transaction?: string;
+        requestId?: string;
         blockhash?: string;
         lastValidBlockHeight?: number;
       };
       if (
         !res.ok ||
         !payload.transaction ||
+        !payload.requestId ||
+        !/^\d+$/.test(payload.requestId) ||
         !payload.blockhash ||
         typeof payload.lastValidBlockHeight !== "number"
       ) {
@@ -81,6 +87,7 @@ export function WithdrawPanel({
       assertSafeWithdrawTx(tx, {
         user: wallet.publicKey,
         expectedLamports: lamports,
+        expectedRequestId: BigInt(payload.requestId),
         expectedAdmin: vault.admin,
       });
 

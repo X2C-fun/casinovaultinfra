@@ -4,11 +4,11 @@
  * Usage:
  *   ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
  *   ANCHOR_WALLET=./keys/player.json \
- *   npx ts-node --compiler-options '{"module":"commonjs"}' scripts/deposit.ts 0.1
+ *   npm run deposit -- 0.1
  */
 
 import { BN } from "@coral-xyz/anchor";
-import { LAMPORTS_PER_SOL, SystemProgram } from "@solana/web3.js";
+import { SystemProgram } from "@solana/web3.js";
 import {
   derivePoolVaultPda,
   deriveVaultStatePda,
@@ -16,6 +16,7 @@ import {
   loadProgram,
   loadProvider,
   sendWithRetry,
+  solToLamports,
 } from "./common";
 
 async function main() {
@@ -25,11 +26,7 @@ async function main() {
     process.exit(1);
   }
 
-  const amount = Math.round(parseFloat(solArg) * LAMPORTS_PER_SOL);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    console.error("Amount must be a positive SOL value.");
-    process.exit(1);
-  }
+  const amount = solToLamports(solArg);
 
   const provider = loadProvider();
   const program = loadProgram(provider);
@@ -43,7 +40,7 @@ async function main() {
   const signature = await sendWithRetry(
     () =>
       program.methods
-        .deposit(new BN(amount))
+        .deposit(new BN(amount.toString()))
         .accountsPartial({
           depositor,
           vaultState,

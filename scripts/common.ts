@@ -2,11 +2,13 @@
  * Shared PDA helpers and Anchor provider wiring for the casino vault scripts.
  */
 
+import * as fs from "fs";
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import {
   Commitment,
   Connection,
+  Keypair,
   PublicKey,
   SendTransactionError,
 } from "@solana/web3.js";
@@ -16,7 +18,11 @@ export const PROGRAM_ID = new PublicKey(
   "DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY",
 );
 
-export const VAULT_STATE_SEED = Buffer.from("vault_state");
+export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+);
+
+export const VAULT_STATE_SEED = Buffer.from("vault_state_v2");
 export const POOL_VAULT_SEED = Buffer.from("pool_vault");
 
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
@@ -33,6 +39,90 @@ export function derivePoolVaultPda(
   programId: PublicKey = PROGRAM_ID,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([POOL_VAULT_SEED], programId);
+}
+
+/** Derives the program data account that records the upgrade authority. */
+export function deriveProgramDataAddress(
+  programId: PublicKey = PROGRAM_ID,
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+  )[0];
+}
+
+/**
+ * Reads the program's upgrade authority, or `null` if the program is
+ * immutable. Layout of `UpgradeableLoaderState::ProgramData`: u32 variant tag
+ * (3), u64 slot, then `Option<Pubkey>`.
+ */
+export async function fetchUpgradeAuthority(
+  connection: Connection,
+  programId: PublicKey = PROGRAM_ID,
+): Promise<PublicKey | null> {
+  const info = await connection.getAccountInfo(
+    deriveProgramDataAddress(programId),
+  );
+  if (!info || !info.owner.equals(BPF_LOADER_UPGRADEABLE_PROGRAM_ID)) {
+    throw new Error(
+      `program ${programId.toBase58()} is not deployed with the upgradeable loader`,
+    );
+  }
+  if (info.data.readUInt32LE(0) !== 3) {
+    throw new Error("unexpected program data account layout");
+  }
+  return info.data[12] === 1 ? new PublicKey(info.data.subarray(13, 45)) : null;
+}
+
+/** Loads a keypair from a Solana CLI JSON file (64-number array). */
+export function loadKeypair(path: string): Keypair {
+  let secret: unknown;
+  try {
+    secret = JSON.parse(fs.readFileSync(path, "utf8"));
+  } catch (err) {
+    throw new Error(`cannot read keypair ${path}: ${(err as Error).message}`);
+  }
+  if (!Array.isArray(secret) || secret.length !== 64) {
+    throw new Error(
+      `${path} is not a Solana keypair (expected a JSON array of 64 numbers)`,
+    );
+  }
+  return Keypair.fromSecretKey(Uint8Array.from(secret as number[]));
+}
+
+const LAMPORTS_PER_SOL_BIGINT = BigInt(1_000_000_000);
+const U64_MAX = BigInt("18446744073709551615");
+
+/**
+ * Parses a plain decimal SOL amount ("0.5", "12", ".25") to exact lamports.
+ * Rejects exponents, signs, more than 9 decimals, zero, and values above u64.
+ */
+export function solToLamports(input: string): bigint {
+  const value = input.trim();
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) {
+    throw new Error(`invalid SOL amount "${input}"`);
+  }
+  const [whole, fraction = ""] = value.split(".");
+  if (fraction.length > 9) {
+    throw new Error(`"${input}" has more than 9 decimal places`);
+  }
+  const lamports =
+    BigInt(whole || "0") * LAMPORTS_PER_SOL_BIGINT +
+    BigInt(fraction.padEnd(9, "0") || "0");
+  if (lamports < BigInt(1))
+    throw new Error("amount must be at least 1 lamport");
+  if (lamports > U64_MAX) throw new Error("amount exceeds u64");
+  return lamports;
+}
+
+/** Parses a non-negative integer that must fit in a u64. */
+export function parseU64(input: string, label: string): bigint {
+  if (!/^\d+$/.test(input.trim())) {
+    throw new Error(`${label} must be a non-negative integer, got "${input}"`);
+  }
+  const value = BigInt(input.trim());
+  if (value > U64_MAX) throw new Error(`${label} exceeds u64`);
+  return value;
 }
 
 /**
