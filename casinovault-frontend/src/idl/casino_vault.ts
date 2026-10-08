@@ -10,7 +10,7 @@ export type CasinoVault = {
     "name": "casinoVault",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "Non-custodial SOL vault program used by the casino backend to hold player funds."
+    "description": "Pooled SOL custody program: holds player funds for a casino backend, with admin-approved withdrawals."
   },
   "instructions": [
     {

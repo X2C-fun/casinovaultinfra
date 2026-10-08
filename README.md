@@ -12,7 +12,14 @@ backend database, which is driven by the events emitted here.
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
 | Rust (SBF)        | `1.84.0`, edition 2021                         |
-| Deployed clusters | devnet                                         |
+| Deployed clusters | devnet (demo — see note below)                 |
+
+> **Status: devnet demo, not audited, not for mainnet funds.** The public devnet
+> instance uses one key as both upgrade authority and vault admin
+> (`5ddTS84UFxK8y2qELjvouw7xtcgBAPxk6JuM3FTyLfoa`). That is a demo shortcut, not a
+> reference configuration — this README tells you to keep them separate. Read
+> [Backend withdraw flow](#backend-withdraw-flow) and [Known limitations](#known-limitations)
+> before building on it.
 
 ---
 
@@ -33,6 +40,7 @@ backend database, which is driven by the events emitted here.
 13. [Local tests](#local-tests)
 14. [Troubleshooting](#troubleshooting)
 15. [Trust model](#trust-model)
+16. [Known limitations](#known-limitations)
 
 ---
 
@@ -51,6 +59,9 @@ backend database, which is driven by the events emitted here.
 ├── scripts/                    # CLI scripts (read / initialize / deposit / withdraw / set_paused)
 ├── tests/                      # anchor test integration suite
 ├── casinovault-frontend/       # Next.js reference UI (deposit + admin co-signed withdraw)
+├── .github/workflows/ci.yml    # CI: clippy, cargo + anchor tests, IDL drift, frontend build
+├── SECURITY.md                 # vulnerability reporting, key powers, accepted advisories
+├── CONTRIBUTING.md / CODE_OF_CONDUCT.md / CHANGELOG.md / LICENSE (MIT)
 ├── keys/                       # admin keypair lives here — GIT-IGNORED, never committed
 └── wallet.json                 # deployer / upgrade-authority keypair — GIT-IGNORED
 ```
@@ -120,8 +131,7 @@ export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 cargo install --git https://github.com/coral-xyz/anchor avm --force
 avm install 0.32.1 && avm use 0.32.1
 
-# Node.js >= 20, then the script/test dependencies
-npm install
+# Node.js >= 20 (https://nodejs.org)
 ```
 
 Verify:
@@ -261,8 +271,10 @@ Copy `keys/admin.json` to secure offline storage now. If it is lost after
 
 ### 3. Fund the admin
 
-`initialize` pays rent for both PDAs (~0.002 SOL), and the admin pays fees for
-every withdrawal it co-signs.
+`initialize` pays rent for both PDAs (~0.002 SOL). The admin does **not** pay
+fees for player withdrawals — the user is the fee payer, both in the reference
+API route and in `scripts/withdraw.ts` with `ADMIN_WALLET`. The admin pays only
+when it is also the recipient (house withdrawals).
 
 ```bash
 solana airdrop 2 $(solana-keygen pubkey keys/admin.json) --url https://api.devnet.solana.com
@@ -296,8 +308,9 @@ under a new program ID.
 
 - `initialize` runs **once** per program ID. A second call fails with
   "account already in use".
-- Send `initialize` right after deploy so nobody front-runs you and becomes
-  admin.
+- Send `initialize` right after deploy. The current program lets **any**
+  signer initialize, so whoever lands first becomes admin (see
+  [Known limitations](#known-limitations)).
 - Before routing real money, every backend should assert
   `vault_state.admin == <expected admin pubkey>` at startup.
 
@@ -305,7 +318,7 @@ under a new program ID.
 
 ## Using the admin key in a backend (`ADMIN_SECRET_KEY`)
 
-Backends (the Cliffhanger API, `casinovault-frontend/src/app/api/withdraw`)
+Backends (your game server, or `casinovault-frontend/src/app/api/withdraw` in the demo)
 co-sign withdrawals with the admin key, loaded from the `ADMIN_SECRET_KEY`
 environment variable. It accepts either format:
 
@@ -364,8 +377,8 @@ anchor keys sync
 | File                                          | What to change            |
 | --------------------------------------------- | ------------------------- |
 | `scripts/common.ts`                           | `PROGRAM_ID`              |
-| `casinovault-frontend/src/lib/constants.ts`   | program ID constant       |
-| Any backend env (e.g. `NEXT_PUBLIC_VAULT_PROGRAM_ID`) | new program ID     |
+| `casinovault-frontend` env                    | `NEXT_PUBLIC_VAULT_PROGRAM_ID` (read by `src/lib/constants.ts`; falls back to the devnet demo ID) |
+| Your own backend                              | wherever it configures the program ID |
 
 Then rebuild (the ID is compiled into the binary), deploy, and initialize:
 
@@ -558,13 +571,41 @@ const rent = await connection.getMinimumBalanceForRentExemption(0);
 const withdrawable = Math.max(0, poolLamports - rent);
 ```
 
-### Typical backend withdraw flow
+### Backend withdraw flow
 
-1. User requests a withdrawal in your API.
-2. Backend checks DB balance, limits, and anti-cheat.
-3. Backend builds `withdraw` and partially signs with the **admin** key.
-4. User signs in their wallet; the transaction is submitted.
-5. On a finalized `WithdrawEvent`, debit the DB.
+> **Debit at approval, not at confirmation.** The program has no request ID or
+> nonce on `withdraw`, so it cannot tell two approvals apart. If you only debit
+> after a `WithdrawEvent` lands, a user with 1 SOL can request N approvals in a
+> few seconds — each gets a fresh blockhash, each passes the balance check —
+> and submit all N for N SOL.
+
+The safe sequence:
+
+1. Authenticate the user and lock their balance row (database transaction /
+   `SELECT … FOR UPDATE`, or an atomic conditional update).
+2. Check balance, limits, and anti-cheat. Reject if `available < amount`.
+3. **Place a hold** for `amount` in the same transaction (move it from
+   `available` to `pending_withdrawal`, keyed by a withdrawal ID). Commit.
+4. Fetch a blockhash, build `withdraw` with the user as fee payer, partially
+   sign with the **admin** key. Store the transaction signature and
+   `lastValidBlockHeight` on the hold.
+5. Return the transaction; the user signs and submits.
+6. Settle the hold:
+   - Signature confirmed (finalized) → convert the hold to a debit.
+   - Current block height passes `lastValidBlockHeight` and the signature never
+     landed → release the hold back to `available`.
+   - Never release a hold while the transaction can still land.
+
+Allow at most one open hold per user if you want the simplest invariant.
+
+Two more rules for the listener:
+
+- `WithdrawEvent` cannot be matched to an approval except by transaction
+  signature — reconcile holds by signature, not by amount.
+- SOL sent to the pool PDA with a plain System transfer produces **no**
+  `DepositEvent`. Never credit balances from pool balance changes; the
+  reconciliation in the [Mainnet checklist](#mainnet-checklist) covers the
+  difference.
 
 ---
 
@@ -586,8 +627,15 @@ const withdrawable = Math.max(0, poolLamports - rent);
 | 6004 | `MathOverflow`            | Checked math overflow            |
 | 6005 | `VaultPaused`             | Deposits / withdrawals suspended |
 
-The rent reserve (~890,880 lamports) stays in the pool permanently. **Never
-credit it as user balance.**
+The rent reserve — whatever `getMinimumBalanceForRentExemption(0)` returns on
+that cluster — stays in the pool permanently.
+**Never credit it as user balance.** The program and scripts read it dynamically.
+
+Events are emitted with `emit!`, i.e. into program logs. The runtime truncates
+logs at 10 KB per transaction. A plain vault instruction never comes close, but
+a composed transaction (many instructions, or another program CPI-ing in) can,
+and a log-only listener would then miss the event. Index by transaction and
+decode instruction data as a fallback.
 
 ---
 
@@ -596,19 +644,34 @@ credit it as user balance.**
 Next.js reference UI: connect wallet, read pool status, deposit, and withdraw
 with server-side admin co-signing via `/api/withdraw`.
 
+> **The withdraw route is a demo.** It has no user accounts or balances, so it
+> would co-sign a withdrawal for anyone. It returns **501** unless you set
+> `VAULT_DEMO_UNSAFE_WITHDRAW=true`, and even then caps each request at
+> `VAULT_DEMO_MAX_WITHDRAW_SOL` (default 0.1) and rate-limits per IP. Never
+> enable it with a funded mainnet admin key. A real backend follows
+> [Backend withdraw flow](#backend-withdraw-flow).
+
 ```bash
 cd casinovault-frontend
 cp .env.example .env.local
-# set ADMIN_SECRET_KEY to the contents of ../keys/admin.json
+# devnet demo only: set ADMIN_SECRET_KEY and VAULT_DEMO_UNSAFE_WITHDRAW=true
 npm install
 npm run dev        # http://localhost:3000
 ```
 
-| Variable                     | Where       | Purpose                                     |
-| ---------------------------- | ----------- | ------------------------------------------- |
-| `NEXT_PUBLIC_SOLANA_RPC_URL` | browser     | RPC endpoint                                |
-| `NEXT_PUBLIC_SOLANA_CLUSTER` | browser     | `devnet` / `mainnet-beta` for explorer links |
-| `ADMIN_SECRET_KEY`           | server only | Admin keypair; co-signs withdrawals         |
+| Variable                       | Where       | Purpose                                              |
+| ------------------------------ | ----------- | ---------------------------------------------------- |
+| `NEXT_PUBLIC_SOLANA_RPC_URL`   | browser     | RPC endpoint                                         |
+| `NEXT_PUBLIC_SOLANA_CLUSTER`   | browser     | `devnet` / `mainnet-beta` for explorer links         |
+| `NEXT_PUBLIC_VAULT_PROGRAM_ID` | browser     | Your program ID (defaults to the devnet demo)        |
+| `ADMIN_SECRET_KEY`             | server only | Admin keypair; co-signs withdrawals                  |
+| `VAULT_DEMO_UNSAFE_WITHDRAW`   | server only | Must be `true` to enable the demo withdraw route     |
+| `VAULT_DEMO_MAX_WITHDRAW_SOL`  | server only | Per-request cap for the demo route (default `0.1`)   |
+
+Before asking the wallet to sign, the UI decodes the server's transaction and
+refuses anything other than a single `withdraw` of the requested amount to the
+connected wallet, with the connected wallet as fee payer
+(`src/lib/withdrawTx.ts`). Integrators should keep that check.
 
 See `casinovault-frontend/README.md` for details.
 
@@ -616,7 +679,11 @@ See `casinovault-frontend/README.md` for details.
 
 ## Local tests
 
+`anchor test` needs a provider wallet at `wallet.json` (see `Anchor.toml`).
+Any keypair works on localnet:
+
 ```bash
+[ -f wallet.json ] || solana-keygen new -o wallet.json --no-bip39-passphrase
 anchor test      # spins up a local validator and runs the integration suite
 ```
 
@@ -677,5 +744,19 @@ The program guarantees only:
 3. Payouts go only to the signing user.
 
 The admin key can approve any withdrawal to any cooperating wallet. Protect it
-like the entire pool balance. Roadmap: `update_admin`, Ed25519 approvals,
-nonces / expiry, on-chain rate limits.
+like the entire pool balance.
+
+---
+
+## Known limitations
+
+None of these is a bug in the current code; each is a property a reusable
+custody protocol should have and this program (v0.1) does not yet.
+
+| Limitation | Impact | Planned change |
+| ---------- | ------ | -------------- |
+| `initialize` can be front-run | Whoever lands `initialize` first owns the vault. | Require the signer to be the program's upgrade authority. |
+| No admin rotation | A leaked admin can unpause as easily as you can pause; recovery needs a program upgrade. | Two-step `propose_admin` / `accept_admin`, controlled by the upgrade authority. |
+| No request ID on `withdraw` | Backends must hold balances at approval time (see above) and reconcile by signature. | `request_id: u64` argument echoed in `WithdrawEvent`. |
+| Single hot admin key, no on-chain limits | A backend compromise can drain the pool. | Optional per-transaction / per-epoch cap in `VaultState`. |
+| Events only in logs | Log truncation in large composed transactions can hide events. | `emit_cpi!`, or decode instruction data in the listener. |

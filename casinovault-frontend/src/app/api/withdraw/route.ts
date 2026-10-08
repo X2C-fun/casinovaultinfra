@@ -1,148 +1,218 @@
+/**
+ * ============================================================================
+ *  DEMO ONLY — DO NOT DEPLOY WITH REAL FUNDS
+ * ============================================================================
+ *  This route co-signs vault withdrawals with the admin key, but it has NO
+ *  user accounts, NO sessions, and NO off-chain balance ledger. Anyone who can
+ *  reach it can request a withdrawal to their own wallet. It is disabled
+ *  (HTTP 501) unless the operator sets VAULT_DEMO_UNSAFE_WITHDRAW=true, and
+ *  even then it caps each request (VAULT_DEMO_MAX_WITHDRAW_SOL, default 0.1).
+ *
+ *  A real backend must authenticate the user and place a hold on their
+ *  off-chain balance BEFORE co-signing (see "Backend withdraw flow" in the
+ *  repository README) — otherwise one balance can be withdrawn many times.
+ * ============================================================================
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import {
   Connection,
   Keypair,
   PublicKey,
+  SystemProgram,
   Transaction,
-  type Transaction as SolanaTx,
-  type VersionedTransaction,
 } from "@solana/web3.js";
-import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
-import type { AnchorWallet } from "@solana/wallet-adapter-react";
+import { BN, Program } from "@coral-xyz/anchor";
 import bs58 from "bs58";
 
-import idl from "@/idl/casino_vault.json";
 import type { CasinoVault } from "@/idl/casino_vault";
 import { PROGRAM_ID, SOLANA_RPC } from "@/lib/constants";
+import { solToLamports } from "@/lib/format";
 import { derivePoolVaultPda, deriveVaultStatePda } from "@/lib/pdas";
+import { VAULT_IDL } from "@/lib/program";
 
 export const runtime = "nodejs";
 
-function loadAdminKeypair(): Keypair {
-  const raw = process.env.ADMIN_SECRET_KEY;
-  if (!raw) {
-    throw new Error(
-      "ADMIN_SECRET_KEY is not set. Add the admin keypair JSON array or base58 secret to .env.local",
-    );
-  }
+const U64_MAX = 18_446_744_073_709_551_615n;
+const DEFAULT_MAX_WITHDRAW_SOL = "0.1";
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 5;
 
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("[")) {
-    const arr = JSON.parse(trimmed) as number[];
-    return Keypair.fromSecretKey(Uint8Array.from(arr));
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
   }
-  return Keypair.fromSecretKey(bs58.decode(trimmed));
 }
 
-function asAnchorWallet(payer: Keypair): AnchorWallet {
-  return {
-    publicKey: payer.publicKey,
-    signTransaction: async <T extends SolanaTx | VersionedTransaction>(
-      tx: T,
-    ): Promise<T> => {
-      if ("partialSign" in tx && typeof tx.partialSign === "function") {
-        (tx as SolanaTx).partialSign(payer);
-      }
-      return tx;
-    },
-    signAllTransactions: async <T extends SolanaTx | VersionedTransaction>(
-      txs: T[],
-    ): Promise<T[]> => {
-      for (const tx of txs) {
-        if ("partialSign" in tx && typeof tx.partialSign === "function") {
-          (tx as SolanaTx).partialSign(payer);
-        }
-      }
-      return txs;
-    },
-  };
+function demoEnabled(): boolean {
+  return process.env.VAULT_DEMO_UNSAFE_WITHDRAW?.trim().toLowerCase() === "true";
+}
+
+function maxWithdrawLamports(): bigint {
+  const raw = process.env.VAULT_DEMO_MAX_WITHDRAW_SOL?.trim() || DEFAULT_MAX_WITHDRAW_SOL;
+  try {
+    return solToLamports(raw);
+  } catch {
+    throw new Error(`VAULT_DEMO_MAX_WITHDRAW_SOL is not a valid SOL amount: ${raw}`);
+  }
+}
+
+let cachedAdmin: Keypair | null = null;
+
+function loadAdminKeypair(): Keypair {
+  if (cachedAdmin) return cachedAdmin;
+  const raw = process.env.ADMIN_SECRET_KEY?.trim();
+  if (!raw) {
+    throw new Error("ADMIN_SECRET_KEY is not set");
+  }
+  cachedAdmin = raw.startsWith("[")
+    ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw) as number[]))
+    : Keypair.fromSecretKey(bs58.decode(raw));
+  return cachedAdmin;
+}
+
+// Per-instance, in-memory fixed window. Bounds RPC spend and admin signing per
+// client IP; it is not a substitute for authentication.
+const hits = new Map<string, { count: number; resetAt: number }>();
+
+function clientIp(req: NextRequest): string {
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0]!.trim();
+  return req.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+function rateLimit(ip: string): void {
+  const now = Date.now();
+  if (hits.size > 10_000) {
+    for (const [key, entry] of hits) {
+      if (entry.resetAt <= now) hits.delete(key);
+    }
+  }
+  const entry = hits.get(ip);
+  if (!entry || entry.resetAt <= now) {
+    hits.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return;
+  }
+  entry.count += 1;
+  if (entry.count > RATE_LIMIT_MAX_REQUESTS) {
+    throw new HttpError(429, "Too many withdrawal requests. Try again in a minute.");
+  }
+}
+
+function parseUser(value: unknown): PublicKey {
+  if (typeof value !== "string" || !value) {
+    throw new HttpError(400, "user is required");
+  }
+  try {
+    return new PublicKey(value);
+  } catch {
+    throw new HttpError(400, "user is not a valid public key");
+  }
+}
+
+function parseLamports(value: unknown): bigint {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    throw new HttpError(400, "amountLamports must be a positive integer string");
+  }
+  const lamports = BigInt(value);
+  if (lamports < 1n || lamports > U64_MAX) {
+    throw new HttpError(400, "amountLamports must be between 1 and u64::MAX");
+  }
+  return lamports;
+}
+
+let cachedRentReserve: number | null = null;
+
+async function rentReserve(connection: Connection): Promise<number> {
+  if (cachedRentReserve === null) {
+    cachedRentReserve = await connection.getMinimumBalanceForRentExemption(0);
+  }
+  return cachedRentReserve;
 }
 
 /**
- * POST { user: base58, amountSol: string }
+ * POST { user: base58, amountLamports: string }
  *
  * Builds a withdraw instruction, signs it with the server-side admin key, and
  * returns a partially signed transaction for the user wallet to finish.
  */
 export async function POST(req: NextRequest) {
+  if (!demoEnabled()) {
+    return NextResponse.json(
+      {
+        error:
+          "Withdrawals are disabled. This reference route has no user balances. " +
+          "Implement authentication and an off-chain balance hold before co-signing " +
+          "(see 'Backend withdraw flow' in the README), or set VAULT_DEMO_UNSAFE_WITHDRAW=true " +
+          "for a devnet demo only.",
+      },
+      { status: 501 },
+    );
+  }
+
   try {
-    const body = (await req.json()) as {
-      user?: string;
-      amountSol?: string;
-    };
+    rateLimit(clientIp(req));
 
-    if (!body.user || !body.amountSol) {
-      return NextResponse.json(
-        { error: "user and amountSol are required" },
-        { status: 400 },
+    const body = (await req.json().catch(() => null)) as {
+      user?: unknown;
+      amountLamports?: unknown;
+    } | null;
+    if (!body) throw new HttpError(400, "Request body must be JSON");
+
+    const user = parseUser(body.user);
+    const lamports = parseLamports(body.amountLamports);
+    const cap = maxWithdrawLamports();
+    if (lamports > cap) {
+      throw new HttpError(
+        400,
+        `Demo withdrawals are capped at ${(Number(cap) / 1e9).toFixed(9)} SOL per request`,
       );
     }
 
-    const user = new PublicKey(body.user);
-    const amountFloat = Number(body.amountSol);
-    if (!Number.isFinite(amountFloat) || amountFloat <= 0) {
-      return NextResponse.json(
-        { error: "amountSol must be a positive number" },
-        { status: 400 },
-      );
-    }
-
-    const lamports = Math.round(amountFloat * 1e9);
     const admin = loadAdminKeypair();
     const connection = new Connection(SOLANA_RPC, "confirmed");
+    const program = new Program<CasinoVault>(VAULT_IDL, { connection });
     const [vaultState] = deriveVaultStatePda(PROGRAM_ID);
     const [poolVault] = derivePoolVaultPda(PROGRAM_ID);
 
-    const stateInfo = await connection.getAccountInfo(vaultState);
+    const [[stateInfo, poolInfo], reserve] = await Promise.all([
+      connection.getMultipleAccountsInfo([vaultState, poolVault], "confirmed"),
+      rentReserve(connection),
+    ]);
     if (!stateInfo) {
-      return NextResponse.json(
-        { error: "Vault is not initialized on this cluster" },
-        { status: 400 },
-      );
+      throw new HttpError(400, "Vault is not initialized on this cluster");
     }
 
-    const provider = new AnchorProvider(connection, asAnchorWallet(admin), {
-      commitment: "confirmed",
-      preflightCommitment: "confirmed",
-    });
-    const program = new Program<CasinoVault>(idl as CasinoVault, provider);
-
-    const state = await program.account.vaultState.fetch(vaultState);
+    const state = program.coder.accounts.decode<{
+      admin: PublicKey;
+      paused: boolean;
+    }>("vaultState", stateInfo.data);
     if (!state.admin.equals(admin.publicKey)) {
-      return NextResponse.json(
-        {
-          error: `ADMIN_SECRET_KEY does not match on-chain admin ${state.admin.toBase58()}`,
-        },
-        { status: 403 },
+      console.error(
+        `withdraw: ADMIN_SECRET_KEY (${admin.publicKey.toBase58()}) does not match on-chain admin ${state.admin.toBase58()}`,
       );
+      throw new HttpError(503, "Withdrawals are temporarily unavailable");
     }
     if (state.paused) {
-      return NextResponse.json({ error: "Vault is paused" }, { status: 403 });
+      throw new HttpError(403, "Vault is paused");
     }
 
-    const rentReserve = await connection.getMinimumBalanceForRentExemption(0);
-    const poolLamports = await connection.getBalance(poolVault);
-    const available = Math.max(0, poolLamports - rentReserve);
+    const available = BigInt(Math.max(0, (poolInfo?.lamports ?? 0) - reserve));
     if (lamports > available) {
-      return NextResponse.json(
-        {
-          error: `Insufficient pool funds. Withdrawable: ${(available / 1e9).toFixed(9)} SOL`,
-        },
-        { status: 400 },
-      );
+      throw new HttpError(400, "Insufficient pool funds for this withdrawal");
     }
-
-    // NOTE: In production, verify the caller's off-chain DB balance / session
-    // here before signing. This route only proves admin co-sign wiring.
 
     const ix = await program.methods
-      .withdraw(new BN(lamports))
+      .withdraw(new BN(lamports.toString()))
       .accountsPartial({
         user,
         admin: admin.publicKey,
         vaultState,
         poolVault,
-        systemProgram: new PublicKey("11111111111111111111111111111111"),
+        systemProgram: SystemProgram.programId,
       })
       .instruction();
 
@@ -154,24 +224,24 @@ export async function POST(req: NextRequest) {
       blockhash,
       lastValidBlockHeight,
     }).add(ix);
-
     tx.partialSign(admin);
 
     return NextResponse.json({
       transaction: tx
-        .serialize({
-          requireAllSignatures: false,
-          verifySignatures: false,
-        })
+        .serialize({ requireAllSignatures: false, verifySignatures: false })
         .toString("base64"),
       admin: admin.publicKey.toBase58(),
-      amountLamports: lamports,
+      amountLamports: lamports.toString(),
+      blockhash,
       lastValidBlockHeight,
     });
   } catch (err) {
+    if (err instanceof HttpError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error("withdraw approve failed:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
+      { error: "Withdrawal approval failed. Please try again later." },
       { status: 500 },
     );
   }

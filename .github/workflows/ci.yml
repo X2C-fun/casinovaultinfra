@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOLANA_VERSION: 2.3.13
+  ANCHOR_VERSION: 0.32.1
+  NODE_VERSION: 22
+  RUST_VERSION: 1.89.0
+
+jobs:
+  rust:
+    name: Rust (clippy + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: test
+        run: cargo test --locked
+
+  anchor:
+    name: Anchor (build + integration tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Cache Solana + Anchor CLIs
+        id: cli-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/solana
+            ~/.cargo/bin/anchor
+          key: cli-solana-${{ env.SOLANA_VERSION }}-anchor-${{ env.ANCHOR_VERSION }}-${{ runner.os }}
+
+      - name: Install Solana CLI
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        run: sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
+
+      - name: Install Anchor CLI
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/coral-xyz/anchor --tag "v${ANCHOR_VERSION}" anchor-cli --locked
+
+      - name: Add CLIs to PATH
+        run: echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Versions
+        run: |
+          solana --version
+          anchor --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Provider wallet for localnet
+        run: solana-keygen new -o wallet.json --no-bip39-passphrase --silent --force
+
+      - name: anchor build
+        run: anchor build
+
+      - name: Committed IDL matches build output
+        run: |
+          diff <(jq -S . target/idl/casino_vault.json) \
+               <(jq -S . casinovault-frontend/src/idl/casino_vault.json)
+          diff target/types/casino_vault.ts casinovault-frontend/src/idl/casino_vault.ts
+
+      - name: Typecheck scripts and tests
+        run: npx tsc --noEmit -p .
+
+      - name: Prettier
+        run: npm run lint
+
+      - name: anchor test
+        run: anchor test --skip-build
+
+  frontend:
+    name: Frontend (tsc + eslint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: casinovault-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: casinovault-frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      - run: npx next build --webpack
+      - name: Production dependency audit (critical only)
+        run: npm audit --omit=dev --audit-level=critical

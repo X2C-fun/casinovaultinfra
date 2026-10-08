@@ -10,6 +10,12 @@ import idl from "@/idl/casino_vault.json";
 import type { CasinoVault } from "@/idl/casino_vault";
 import { PROGRAM_ID, SOLANA_RPC } from "./constants";
 
+/** The committed IDL, pointed at the configured PROGRAM_ID. */
+export const VAULT_IDL: CasinoVault = {
+  ...(idl as CasinoVault),
+  address: PROGRAM_ID.toBase58() as CasinoVault["address"],
+};
+
 const confirmOptions: ConfirmOptions = {
   commitment: "confirmed",
   preflightCommitment: "confirmed",
@@ -34,7 +40,7 @@ export function getProgram(
   connection?: Connection,
 ): Program<CasinoVault> {
   const provider = getProvider(wallet, connection ?? getConnection());
-  return new Program<CasinoVault>(idl as CasinoVault, provider);
+  return new Program<CasinoVault>(VAULT_IDL, provider);
 }
 
 /** Read-only program (no wallet) for fetching accounts. */
@@ -48,7 +54,7 @@ export function getReadonlyProgram(
   } as AnchorWallet;
 
   const provider = new AnchorProvider(connection, dummyWallet, confirmOptions);
-  return new Program<CasinoVault>(idl as CasinoVault, provider);
+  return new Program<CasinoVault>(VAULT_IDL, provider);
 }
 
 export { PROGRAM_ID };

@@ -1,25 +1,13 @@
 import type { Metadata } from "next";
-import { Syne, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import "@fontsource-variable/syne";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/500.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
 
 import { AppProviders } from "@/components/AppProviders";
 import "./globals.css";
-
-const syne = Syne({
-  subsets: ["latin"],
-  variable: "--font-display",
-});
-
-const plex = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-body",
-});
-
-const mono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-mono",
-});
 
 export const metadata: Metadata = {
   title: "Casino Vault",
@@ -33,7 +21,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${syne.variable} ${plex.variable} ${mono.variable}`}>
+    <html lang="en">
       <body>
         <AppProviders>{children}</AppProviders>
       </body>

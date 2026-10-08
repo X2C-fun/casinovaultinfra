@@ -42,10 +42,10 @@ export function useVaultState(pollMs = 12_000) {
 
   const refresh = useCallback(async () => {
     try {
-      setError(null);
-      const program = getReadonlyProgram(connection);
       const rentReserve = await connection.getMinimumBalanceForRentExemption(0);
       const stateInfo = await connection.getAccountInfo(vaultState, "confirmed");
+      const program = getReadonlyProgram(connection);
+      setError(null);
 
       if (!stateInfo) {
         setData({
@@ -80,9 +80,12 @@ export function useVaultState(pollMs = 12_000) {
   }, [connection, vaultState, poolVault]);
 
   useEffect(() => {
-    void refresh();
+    const first = window.setTimeout(() => void refresh(), 0);
     const id = window.setInterval(() => void refresh(), pollMs);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(id);
+    };
   }, [refresh, pollMs]);
 
   return { data, loading, error, refresh };

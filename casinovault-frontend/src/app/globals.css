@@ -11,6 +11,9 @@
   --live: #0f6b4c;
   --paused: #9a3412;
   --shadow: 0 18px 40px rgba(20, 32, 27, 0.08);
+  --font-display: "Syne Variable";
+  --font-body: "IBM Plex Sans";
+  --font-mono: "IBM Plex Mono";
 }
 
 * {

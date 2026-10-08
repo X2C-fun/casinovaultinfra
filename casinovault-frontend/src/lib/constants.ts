@@ -1,8 +1,11 @@
 import { PublicKey } from "@solana/web3.js";
 
-/** On-chain program ID (devnet deployment). */
+/** Program ID of the public devnet demo deployment. */
+export const DEFAULT_PROGRAM_ID = "DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY";
+
+/** On-chain program ID. Override per deployment with NEXT_PUBLIC_VAULT_PROGRAM_ID. */
 export const PROGRAM_ID = new PublicKey(
-  "DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY",
+  process.env.NEXT_PUBLIC_VAULT_PROGRAM_ID?.trim() || DEFAULT_PROGRAM_ID,
 );
 
 export const VAULT_STATE_SEED = Buffer.from("vault_state");

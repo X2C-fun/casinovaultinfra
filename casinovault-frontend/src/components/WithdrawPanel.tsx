@@ -5,6 +5,8 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Transaction } from "@solana/web3.js";
 
 import { explorerTx } from "@/lib/constants";
+import { solToLamports } from "@/lib/format";
+import { assertSafeWithdrawTx } from "@/lib/withdrawTx";
 import type { VaultSnapshot } from "@/hooks/useVaultState";
 
 export function WithdrawPanel({
@@ -41,6 +43,7 @@ export function WithdrawPanel({
 
     try {
       setBusy(true);
+      const lamports = solToLamports(amount);
 
       // 1) Backend (this Next API) checks pool + signs as admin.
       const res = await fetch("/api/withdraw", {
@@ -48,31 +51,59 @@ export function WithdrawPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user: wallet.publicKey.toBase58(),
-          amountSol: amount,
+          amountLamports: lamports.toString(),
         }),
       });
-      const payload = (await res.json()) as {
+      const payload = (await res.json().catch(() => ({}))) as {
         error?: string;
         transaction?: string;
+        blockhash?: string;
+        lastValidBlockHeight?: number;
       };
-      if (!res.ok || !payload.transaction) {
+      if (
+        !res.ok ||
+        !payload.transaction ||
+        !payload.blockhash ||
+        typeof payload.lastValidBlockHeight !== "number"
+      ) {
         throw new Error(payload.error ?? "Admin approval failed");
       }
 
-      // 2) User signs the partially-signed transaction and sends it.
+      // 2) Verify the server's transaction is exactly the withdraw we asked
+      //    for before the wallet is ever prompted.
       const raw = Uint8Array.from(atob(payload.transaction), (c) =>
         c.charCodeAt(0),
       );
       const tx = Transaction.from(raw);
+      if (tx.recentBlockhash !== payload.blockhash) {
+        throw new Error("Refusing to sign: blockhash mismatch.");
+      }
+      assertSafeWithdrawTx(tx, {
+        user: wallet.publicKey,
+        expectedLamports: lamports,
+        expectedAdmin: vault.admin,
+      });
+
+      // 3) User signs the partially-signed transaction and sends it.
       const signed = await wallet.signTransaction(tx);
       const signature = await connection.sendRawTransaction(signed.serialize(), {
         skipPreflight: false,
         maxRetries: 5,
       });
-      await connection.confirmTransaction(signature, "confirmed");
+      const confirmation = await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: payload.blockhash,
+          lastValidBlockHeight: payload.lastValidBlockHeight,
+        },
+        "confirmed",
+      );
+      if (confirmation.value.err) {
+        throw new Error(`Withdrawal failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
+      }
 
       setTxSig(signature);
-      setMessage("Withdrawal confirmed. Debit the off-chain balance after this event.");
+      setMessage("Withdrawal confirmed.");
       onDone();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
@@ -86,8 +117,9 @@ export function WithdrawPanel({
       <h2>Withdraw</h2>
       <p className="panel-copy">
         Requires your signature <strong>and</strong> the admin co-sign from the
-        server (<code>/api/withdraw</code>). Set <code>ADMIN_SECRET_KEY</code> in
-        <code>.env.local</code>.
+        server (<code>/api/withdraw</code>). The demo route is disabled unless
+        the operator sets <code>VAULT_DEMO_UNSAFE_WITHDRAW=true</code>; it has no
+        user balances and must not run against real funds.
       </p>
 
       <form onSubmit={onSubmit} className="stack-form">

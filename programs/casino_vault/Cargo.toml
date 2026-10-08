@@ -1,7 +1,7 @@
 [package]
 name = "casino_vault"
 version = "0.1.0"
-description = "Non-custodial SOL vault program used by the casino backend to hold player funds."
+description = "Pooled SOL custody program: holds player funds for a casino backend, with admin-approved withdrawals."
 edition = "2021"
 license = "MIT"
 # rustc version shipped with Solana platform-tools v1.48 (Agave 2.3.x). Kept in
