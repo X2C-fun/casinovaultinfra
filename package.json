@@ -1,6 +1,6 @@
 {
   "name": "casino-vault",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "description": "Anchor program that custodies player SOL for the casino backend.",

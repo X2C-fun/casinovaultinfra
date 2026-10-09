@@ -713,22 +713,25 @@ describe("casino_vault", () => {
       const amount = LAMPORTS_PER_SOL;
       const poolBefore = await balanceOf(provider, poolVault);
 
+      let listener: number | undefined;
       const received = new Promise<any>((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error("no DepositEvent received within 30s")),
-          30_000,
-        );
-        const listener = program.addEventListener(
-          "depositEvent",
-          (event: any) => {
-            if (!event.user.equals(player.publicKey)) return;
-            clearTimeout(timeout);
+        const timeout = setTimeout(() => {
+          if (listener !== undefined)
             void program.removeEventListener(listener);
-            resolve(event);
-          },
-        );
+          reject(new Error("no DepositEvent received within 30s"));
+        }, 30_000);
+        listener = program.addEventListener("depositEvent", (event: any) => {
+          if (!event.user.equals(player.publicKey)) return;
+          clearTimeout(timeout);
+          void program.removeEventListener(listener!);
+          resolve(event);
+        });
       });
 
+      // addEventListener opens its websocket subscription asynchronously. Give
+      // it time to become active, or a fast deposit can land before the
+      // subscription and the event is never delivered.
+      await new Promise((r) => setTimeout(r, 1_500));
       await deposit(player, amount);
 
       const event = await received;

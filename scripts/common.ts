@@ -103,17 +103,37 @@ export function lamportsToSol(lamports: number | bigint): string {
   return (Number(lamports) / 1e9).toFixed(9);
 }
 
+/**
+ * The part of an error that describes what went wrong at the RPC level.
+ *
+ * `SendTransactionError.message` also embeds the last program logs, which
+ * contain arbitrary numbers ("consumed 4291 of 200000 compute units") and
+ * words. Matching patterns against it would mistake a program error for a
+ * network problem, so use the RPC's own message instead.
+ */
+function rpcErrorText(err: unknown): string {
+  if (err instanceof SendTransactionError)
+    return err.transactionError.message ?? "";
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Errors after which the RPC call can be repeated without side effects. */
 function isTransientRpcError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return /blockhash not found|node is behind|too many requests|429|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|socket hang up|timed? ?out/i.test(
-    message,
+  // A simulation that produced program logs ran the program: its failure is
+  // the program's answer, not a network problem.
+  if (
+    err instanceof SendTransactionError &&
+    (err.transactionError.logs?.length ?? 0) > 0
+  ) {
+    return false;
+  }
+  return /blockhash not found|node is behind|too many requests|\b429\b|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|socket hang up|\btimed? ?out\b/i.test(
+    rpcErrorText(err),
   );
 }
 
 function isAlreadyProcessed(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return /already been processed|AlreadyProcessed/i.test(message);
+  return /already been processed|AlreadyProcessed/i.test(rpcErrorText(err));
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

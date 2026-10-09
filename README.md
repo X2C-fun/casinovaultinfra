@@ -386,12 +386,15 @@ anchor build
 # 2. Read the new program ID
 solana-keygen pubkey target/deploy/casino_vault-keypair.json
 
-# 3. Write it into declare_id! and Anchor.toml automatically
-anchor keys sync
+# 3. Write it into declare_id! and Anchor.toml (localnet and devnet sections)
+anchor keys sync -p casino_vault
+anchor keys sync -p casino_vault --provider.cluster devnet
 ```
 
-`anchor keys sync` updates `programs/casino_vault/src/lib.rs` and
-`Anchor.toml`. Update the remaining hardcoded references by hand:
+`-p casino_vault` keeps the test fixture `programs/cpi_probe` out of it; a
+plain `anchor keys sync` would also rewrite its ID. The two commands update
+`programs/casino_vault/src/lib.rs` and the `[programs.localnet]` and
+`[programs.devnet]` entries in `Anchor.toml`; check both sections afterwards. Update the remaining hardcoded references by hand:
 
 | File                                          | What to change            |
 | --------------------------------------------- | ------------------------- |
@@ -436,6 +439,15 @@ anchor build
 anchor upgrade target/deploy/casino_vault.so \
   --program-id EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7 \
   --provider.cluster devnet
+```
+
+`anchor deploy` also published the IDL on-chain, and `anchor upgrade` does not
+update it. After any interface change, upgrade it too, or explorers and
+clients that fetch the IDL from chain will decode with the old one:
+
+```bash
+anchor idl upgrade --filepath target/idl/casino_vault.json \
+  EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7 --provider.cluster devnet
 ```
 
 `VaultState` and the pool balance survive upgrades. Do **not** change the
@@ -625,8 +637,20 @@ The safe sequence:
    v0.1 `withdraw` carries no request ID, so the listener matches a
    `WithdrawEvent` to its hold by `user` (the wallet), and two holds on one
    wallet would be ambiguous.
+
+   Locking the account's own balance row (step 1) does **not** enforce this:
+   two accounts withdrawing concurrently to the same wallet each lock only
+   their own row, and both holds get placed. Enforce it in the database, for
+   example with a unique partial index on the holds table,
+   `UNIQUE (destination_wallet) WHERE status = 'open'`, so the second insert
+   fails.
 3. Fetch a blockhash and build the `withdraw` transaction yourself: exactly
-   one `withdraw` instruction, the user's wallet as `user` and fee payer.
+   one `withdraw` instruction, optionally preceded by ComputeBudget
+   instructions you choose (a priority fee helps on a congested cluster; the
+   user cannot add one, because you sign the whole message), with the user's
+   wallet as `user` and fee payer. The user must already hold enough SOL for
+   the fee, and a payout to an empty wallet must be at least the rent-exempt
+   minimum (about 0.00089 SOL) or it fails.
    **Never co-sign a transaction you did not build.** A user-built
    transaction could wrap `withdraw` in other instructions or programs, and
    your settlement logic would no longer see what you approved.
@@ -847,3 +871,4 @@ custody protocol should have and this program (v0.1) does not yet.
 | No request ID on `withdraw` | Backends must hold balances at approval time, allow one open hold per user, and match events by user (see above). | `request_id: u64` argument echoed in `WithdrawEvent`. |
 | Single hot admin key, no on-chain limits | A backend compromise can drain the pool. | Optional per-transaction / per-epoch cap in `VaultState`. |
 | Events only in logs | Log truncation in large composed transactions can hide events. | `emit_cpi!`, or decode instruction data in the listener. |
+| Admin must be a keypair | `withdraw` must be a top-level instruction, so a multisig (e.g. Squads) or PDA admin, which signs through CPI, cannot approve withdrawals. `set_paused` still works from a multisig. | Keep the admin in an HSM/KMS or signer service; use a multisig for the upgrade authority. |

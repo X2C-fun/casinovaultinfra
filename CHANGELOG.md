@@ -61,12 +61,13 @@ codes are unchanged from 0.1.0.
 - Scripts: `sendWithRetry` signs once and re-sends the same bytes; it builds a
   new transaction only after the previous one provably expired. A timeout
   after a successful send can no longer cause a second deposit or withdrawal.
-
-
-
+- Scripts: `sendWithRetry` classifies errors by the RPC message only, so a
+  program error whose logs contain "429" or "timed out" is reported at once
+  instead of being retried for minutes.
 - Demo `/api/withdraw` route is disabled (HTTP 501) unless
   `VAULT_DEMO_UNSAFE_WITHDRAW=true`; when enabled it enforces a per-request cap
-  (`VAULT_DEMO_MAX_WITHDRAW_SOL`, default 0.1 SOL) and a per-IP rate limit.
+  (`VAULT_DEMO_MAX_WITHDRAW_SOL`, default 0.1 SOL) and rate limits per wallet
+  and per caller (see `VAULT_DEMO_TRUSTED_PROXY_HOPS` above).
   Admin-mismatch and unexpected errors return generic messages; details are
   logged server-side only.
 - Frontend decodes the server-built withdraw transaction and refuses to sign
@@ -113,8 +114,10 @@ codes are unchanged from 0.1.0.
 
 - Initial release: `casino_vault` Anchor program (`initialize`, `deposit`,
   `withdraw`, `set_paused`), TypeScript admin scripts, integration tests, and
-  the Next.js reference frontend. Deployed to devnet as
-  `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`.
+  the Next.js reference frontend. Deployed to devnet by another team as
+  `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`; this repository does not
+  control that deployment (see 0.1.1).
 
-[Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/a0da5b8...HEAD
+[Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/X2C-fun/casinovaultinfra/compare/a0da5b8...v0.1.1
 [0.1.0]: https://github.com/X2C-fun/casinovaultinfra/commit/a0da5b8
