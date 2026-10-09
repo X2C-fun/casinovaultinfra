@@ -34,11 +34,13 @@ async function main() {
   }
 
   const signature = await sendWithRetry(
+    provider,
     () =>
       program.methods
         .setPaused(paused)
         .accountsPartial({ admin, vaultState })
-        .rpc({ commitment: "confirmed", maxRetries: 5 }),
+        .transaction(),
+    [],
     "set_paused",
   );
 

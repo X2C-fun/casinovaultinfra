@@ -8,16 +8,26 @@ backend database, which is driven by the events emitted here.
 
 | Item              | Value                                          |
 | ----------------- | ---------------------------------------------- |
-| Program ID        | `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` |
+| Program ID        | `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7` |
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
 | Rust (SBF)        | `1.84.0`, edition 2021                         |
-| Deployed clusters | devnet (demo — see note below)                 |
+| Deployed clusters | devnet (v0.1.1, slot 509121525)                |
 
-> **Status: devnet demo, not audited, not for mainnet funds.** The public devnet
-> instance uses one key as both upgrade authority and vault admin
-> (`5ddTS84UFxK8y2qELjvouw7xtcgBAPxk6JuM3FTyLfoa`). That is a demo shortcut, not a
-> reference configuration — this README tells you to keep them separate. Read
+> **Status: not audited, not for mainnet funds.** v0.1.1 is a fresh deployment
+> under the program ID above. An earlier v0.1.0 build at
+> `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` was deployed by another team; this repository
+> neither controls nor upgrades it.
+>
+> The devnet deployment keeps the roles separate, as this README recommends:
+>
+> | Role | Address |
+> | ---- | ------- |
+> | Upgrade authority | `Hithh6rJmGiWRdkBsUKqJyDMnEos1fEb5baumpbYwEhr` |
+> | Vault admin (`VaultState.admin`) | `Agb3fnkpc7U1u5y2GutLpnGfKQcWLHVW4PKJ18CwUgDr` |
+> | Pool vault PDA | derived from `["pool_vault"]` |
+>
+> Read
 > [Backend withdraw flow](#backend-withdraw-flow) and [Known limitations](#known-limitations)
 > before building on it.
 
@@ -56,6 +66,7 @@ backend database, which is driven by the events emitted here.
 │       ├── instructions/       # initialize, deposit, withdraw, set_paused
 │       ├── state.rs            # VaultState
 │       ├── events.rs / errors.rs / constants.rs / utils.rs
+├── programs/cpi_probe/         # TEST FIXTURE ONLY: forwards vault calls via CPI; never deploy
 ├── scripts/                    # CLI scripts (read / initialize / deposit / withdraw / set_paused)
 ├── tests/                      # anchor test integration suite
 ├── casinovault-frontend/       # Next.js reference UI (deposit + admin co-signed withdraw)
@@ -128,7 +139,7 @@ sh -c "$(curl -sSfL https://release.anza.xyz/v2.3.13/install)"
 export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 
 # Anchor 0.32.1 via avm
-cargo install --git https://github.com/coral-xyz/anchor avm --force
+cargo install --git https://github.com/coral-xyz/anchor --tag v0.32.1 avm --locked --force
 avm install 0.32.1 && avm use 0.32.1
 
 # Node.js >= 20 (https://nodejs.org)
@@ -176,11 +187,13 @@ https://faucet.solana.com and paste the `wallet.json` pubkey.
 `target/` is not in git, so a fresh clone has **no**
 `target/deploy/casino_vault-keypair.json`.
 
-- **Upgrading the existing devnet program
-  (`DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`)** — you need the original
-  `wallet.json` (upgrade authority). Skip to Step 5; `anchor deploy` /
-  `anchor upgrade` will work against the existing address. See
-  [Upgrading the deployed program](#upgrading-the-deployed-program).
+- **Upgrading this repository's devnet program
+  (`EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7`)** — you need its upgrade
+  authority keypair. Do **not** run `anchor deploy`: a fresh
+  clone's generated `target/deploy/casino_vault-keypair.json` is a different
+  key, so it would create a new program at a random address. Build (Step 5),
+  then follow [Upgrading the deployed program](#upgrading-the-deployed-program)
+  instead of Step 6.
 - **Deploying your own copy** — follow
   [Deploying under a new program ID](#deploying-under-a-new-program-id) first,
   then come back to Step 5.
@@ -202,10 +215,16 @@ This produces:
 
 ### Step 6 — Deploy to devnet
 
+Only for a program ID whose keypair you hold (a new deployment). To change
+the existing devnet program, use [Upgrading](#upgrading-the-deployed-program).
+
 ```bash
-anchor deploy --provider.cluster devnet
+anchor deploy -p casino_vault --provider.cluster devnet
 # or: npm run deploy:devnet
 ```
+
+`-p casino_vault` matters: a plain `anchor deploy` also deploys
+`programs/cpi_probe`, a test fixture.
 
 Confirm it is on-chain and that the upgrade authority is your `wallet.json`:
 
@@ -367,16 +386,18 @@ anchor build
 # 2. Read the new program ID
 solana-keygen pubkey target/deploy/casino_vault-keypair.json
 
-# 3. Write it into declare_id! and Anchor.toml automatically
-anchor keys sync
+# 3. Write it into declare_id! and Anchor.toml (localnet and devnet sections)
+anchor keys sync -p casino_vault
+anchor keys sync -p casino_vault --provider.cluster devnet
 ```
 
-`anchor keys sync` updates `programs/casino_vault/src/lib.rs` and
-`Anchor.toml`. Update the remaining hardcoded references by hand:
+`-p casino_vault` keeps the test fixture `programs/cpi_probe` out of it; a
+plain `anchor keys sync` would also rewrite its ID. The two commands update
+`programs/casino_vault/src/lib.rs` and the `[programs.localnet]` and
+`[programs.devnet]` entries in `Anchor.toml`; check both sections afterwards. Update the remaining hardcoded references by hand:
 
 | File                                          | What to change            |
 | --------------------------------------------- | ------------------------- |
-| `scripts/common.ts`                           | `PROGRAM_ID`              |
 | `casinovault-frontend` env                    | `NEXT_PUBLIC_VAULT_PROGRAM_ID` (read by `src/lib/constants.ts`; falls back to the devnet demo ID) |
 | Your own backend                              | wherever it configures the program ID |
 
@@ -384,7 +405,7 @@ Then rebuild (the ID is compiled into the binary), deploy, and initialize:
 
 ```bash
 anchor build
-anchor deploy --provider.cluster devnet
+anchor deploy -p casino_vault --provider.cluster devnet
 # then: create admin + initialize (section above)
 ```
 
@@ -403,11 +424,30 @@ Back up `target/deploy/casino_vault-keypair.json` — `target/` is git-ignored.
 
 Only the upgrade authority (`wallet.json` that deployed it) can upgrade.
 
+A program account has a fixed size. If the new `.so` is larger than the
+deployed one, the upgrade is rejected until you extend the account. Compare
+`solana program show <PROGRAM_ID>` (`Data Length`) with
+`ls -l target/deploy/casino_vault.so`, and extend by at least the difference:
+
+```bash
+solana program extend <PROGRAM_ID> <ADDITIONAL_BYTES> \
+  --url https://api.devnet.solana.com
+```
+
 ```bash
 anchor build
 anchor upgrade target/deploy/casino_vault.so \
-  --program-id DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY \
+  --program-id EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7 \
   --provider.cluster devnet
+```
+
+`anchor deploy` also published the IDL on-chain, and `anchor upgrade` does not
+update it. After any interface change, upgrade it too, or explorers and
+clients that fetch the IDL from chain will decode with the old one:
+
+```bash
+anchor idl upgrade --filepath target/idl/casino_vault.json \
+  EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7 --provider.cluster devnet
 ```
 
 `VaultState` and the pool balance survive upgrades. Do **not** change the
@@ -506,6 +546,13 @@ Anyone may deposit; the backend credits `DepositEvent.user`. Rejects
 `amount == 0`, insufficient balance, overflow, or `paused == true`. There is no
 on-chain per-user balance.
 
+Must be a top-level instruction. A deposit forwarded by another program (a
+multisig, router or smart wallet) fails with `CpiNotAllowed` (6006), because
+Anchor's event parser cannot see events from a CPI'd call and the deposit
+would never be credited. A multisig can still top up the bankroll with a plain
+System transfer to the pool PDA; that is uncredited by design (see the
+reconciliation step in the [Mainnet checklist](#mainnet-checklist)).
+
 ### `withdraw` — release SOL (admin-approved)
 
 Accounts: `user` (signer, recipient), `admin` (signer), `vault_state`,
@@ -531,6 +578,7 @@ await program.methods
 ```
 
 - Requires **both** signatures; a user alone cannot drain the pool.
+- Must be a top-level instruction; CPI fails with `CpiNotAllowed` (6006).
 - Funds always go to the signing `user` (no destination parameter).
 - Capped at pool balance minus the rent reserve.
 - Emits `WithdrawEvent`; debit the DB only **after** confirmation.
@@ -584,28 +632,87 @@ The safe sequence:
 1. Authenticate the user and lock their balance row (database transaction /
    `SELECT … FOR UPDATE`, or an atomic conditional update).
 2. Check balance, limits, and anti-cheat. Reject if `available < amount`.
-3. **Place a hold** for `amount` in the same transaction (move it from
-   `available` to `pending_withdrawal`, keyed by a withdrawal ID). Commit.
-4. Fetch a blockhash, build `withdraw` with the user as fee payer, partially
-   sign with the **admin** key. Store the transaction signature and
-   `lastValidBlockHeight` on the hold.
-5. Return the transaction; the user signs and submits.
-6. Settle the hold:
-   - Signature confirmed (finalized) → convert the hold to a debit.
-   - Current block height passes `lastValidBlockHeight` and the signature never
-     landed → release the hold back to `available`.
-   - Never release a hold while the transaction can still land.
+   Also reject if this account **or the destination wallet** already has an
+   open hold. One open hold per destination wallet is required, not optional:
+   v0.1 `withdraw` carries no request ID, so the listener matches a
+   `WithdrawEvent` to its hold by `user` (the wallet), and two holds on one
+   wallet would be ambiguous.
 
-Allow at most one open hold per user if you want the simplest invariant.
+   Locking the account's own balance row (step 1) does **not** enforce this:
+   two accounts withdrawing concurrently to the same wallet each lock only
+   their own row, and both holds get placed. Enforce it in the database, for
+   example with a unique partial index on the holds table,
+   `UNIQUE (destination_wallet) WHERE status = 'open'`, so the second insert
+   fails.
+3. Fetch a blockhash and build the `withdraw` transaction yourself: exactly
+   one `withdraw` instruction, optionally preceded by ComputeBudget
+   instructions you choose (a priority fee helps on a congested cluster; the
+   user cannot add one, because you sign the whole message), with the user's
+   wallet as `user` and fee payer. The user must already hold enough SOL for
+   the fee, and a payout to an empty wallet must be at least the rent-exempt
+   minimum (about 0.00089 SOL) or it fails.
+   **Never co-sign a transaction you did not build.** A user-built
+   transaction could wrap `withdraw` in other instructions or programs, and
+   your settlement logic would no longer see what you approved.
+4. In one database transaction, **place the hold** for `amount` (move it from
+   `available` to `pending_withdrawal`), store the destination wallet and
+   `lastValidBlockHeight` on it, and commit. Only then partially sign with
+   the **admin** key and return the transaction. A crash before the commit
+   leaves nothing signed; a crash after it leaves a hold that step 6 releases
+   once it expires.
 
-Two more rules for the listener:
+   Do **not** expect to store the transaction signature here. A transaction's
+   signature is its fee payer's signature, which is the user's, and it does
+   not exist until the user signs.
+5. The user signs and submits it, either through your backend or straight to
+   an RPC node; your backend cannot prevent the latter, so settlement must not
+   depend on seeing the signed transaction.
+6. Settle the hold from finalized chain data:
+   - A finalized, successful transaction contains a `WithdrawEvent` whose
+     `user` has an open hold and whose `amount` equals it → convert the hold
+     to a debit and record the transaction signature.
+   - A `WithdrawEvent` for a wallet with **no** open hold, or with a different
+     `amount` (other than a house withdrawal, below), means an approval leaked
+     or your accounting is wrong. Treat it as an incident: alert and
+     `set_paused true` before anything else.
+   - The listener has processed every finalized block up to a block height
+     greater than the hold's `lastValidBlockHeight`, and no matching event
+     was seen → the transaction can no longer land; release the hold back to
+     `available`.
+   - Never release a hold before both conditions of the previous point hold.
+     A block-height check alone is not enough if your listener is lagging.
 
-- `WithdrawEvent` cannot be matched to an approval except by transaction
-  signature — reconcile holds by signature, not by amount.
+House withdrawals (admin as both user and admin) bypass this flow; exclude the
+admin key when matching events to holds.
+
+Rules for the listener:
+
+- **Ignore every transaction whose `meta.err` is set.** A failed transaction is
+  rolled back, but its logs still contain every event emitted before the
+  failing instruction. Example: `[deposit(1 SOL), a transfer that fails]`
+  moves nothing, yet its logs carry a `DepositEvent` for 1 SOL; crediting it
+  hands out free balance that can be withdrawn as real SOL. Anchor's
+  `program.addEventListener` already skips failed transactions; if you fetch
+  transactions with `getTransaction` and parse them with `EventParser`, you
+  must check `meta.err` yourself (see `getTxDetails` in `tests/utils.ts`).
+- Credit and debit only from **finalized** transactions. Use the websocket
+  feed for fast UI updates, not for balances.
+- **De-duplicate by source, never by contents.** Use
+  `(transaction signature, instruction index, event index)` as a unique key
+  in your database. Two identical deposits in one slot produce identical
+  events, so content-based de-duplication drops one; no de-duplication at all
+  credits twice when the listener restarts or backfills.
+- Never settle a hold by amount alone; match on `user` first (see step 6).
+- The program rejects `deposit`/`withdraw` called through CPI
+  (`CpiNotAllowed`), so every one that succeeds is a top-level instruction
+  whose event Anchor's parser can read.
 - SOL sent to the pool PDA with a plain System transfer produces **no**
   `DepositEvent`. Never credit balances from pool balance changes; the
   reconciliation in the [Mainnet checklist](#mainnet-checklist) covers the
   difference.
+
+The reference frontend's demo route (`/api/withdraw`) has no ledger, so it
+skips the hold entirely; it is not an implementation of this flow.
 
 ---
 
@@ -626,6 +733,7 @@ Two more rules for the listener:
 | 6003 | `VaultAlreadyInitialized` | Client mapping for init race     |
 | 6004 | `MathOverflow`            | Checked math overflow            |
 | 6005 | `VaultPaused`             | Deposits / withdrawals suspended |
+| 6006 | `CpiNotAllowed`           | `deposit` / `withdraw` called via CPI |
 
 The rent reserve — whatever `getMinimumBalanceForRentExemption(0)` returns on
 that cluster — stays in the pool permanently.
@@ -647,7 +755,8 @@ with server-side admin co-signing via `/api/withdraw`.
 > **The withdraw route is a demo.** It has no user accounts or balances, so it
 > would co-sign a withdrawal for anyone. It returns **501** unless you set
 > `VAULT_DEMO_UNSAFE_WITHDRAW=true`, and even then caps each request at
-> `VAULT_DEMO_MAX_WITHDRAW_SOL` (default 0.1) and rate-limits per IP. Never
+> `VAULT_DEMO_MAX_WITHDRAW_SOL` (default 0.1) and rate-limits per wallet and per
+> client (see `VAULT_DEMO_TRUSTED_PROXY_HOPS`). Never
 > enable it with a funded mainnet admin key. A real backend follows
 > [Backend withdraw flow](#backend-withdraw-flow).
 
@@ -661,12 +770,14 @@ npm run dev        # http://localhost:3000
 
 | Variable                       | Where       | Purpose                                              |
 | ------------------------------ | ----------- | ---------------------------------------------------- |
-| `NEXT_PUBLIC_SOLANA_RPC_URL`   | browser     | RPC endpoint                                         |
+| `NEXT_PUBLIC_SOLANA_RPC_URL`   | browser     | RPC endpoint; shipped to every browser, so no API keys |
+| `SOLANA_RPC_URL`               | server only | RPC for `/api/withdraw` (may carry a key); falls back to the public one |
 | `NEXT_PUBLIC_SOLANA_CLUSTER`   | browser     | `devnet` / `mainnet-beta` for explorer links         |
 | `NEXT_PUBLIC_VAULT_PROGRAM_ID` | browser     | Your program ID (defaults to the devnet demo)        |
 | `ADMIN_SECRET_KEY`             | server only | Admin keypair; co-signs withdrawals                  |
 | `VAULT_DEMO_UNSAFE_WITHDRAW`   | server only | Must be `true` to enable the demo withdraw route     |
 | `VAULT_DEMO_MAX_WITHDRAW_SOL`  | server only | Per-request cap for the demo route (default `0.1`)   |
+| `VAULT_DEMO_TRUSTED_PROXY_HOPS` | server only | Proxies that append to `X-Forwarded-For` (Vercel `1`); `0` = one shared rate-limit bucket |
 
 Before asking the wallet to sign, the UI decodes the server's transaction and
 refuses anything other than a single `withdraw` of the requested amount to the
@@ -757,6 +868,7 @@ custody protocol should have and this program (v0.1) does not yet.
 | ---------- | ------ | -------------- |
 | `initialize` can be front-run | Whoever lands `initialize` first owns the vault. | Require the signer to be the program's upgrade authority. |
 | No admin rotation | A leaked admin can unpause as easily as you can pause; recovery needs a program upgrade. | Two-step `propose_admin` / `accept_admin`, controlled by the upgrade authority. |
-| No request ID on `withdraw` | Backends must hold balances at approval time (see above) and reconcile by signature. | `request_id: u64` argument echoed in `WithdrawEvent`. |
+| No request ID on `withdraw` | Backends must hold balances at approval time, allow one open hold per user, and match events by user (see above). | `request_id: u64` argument echoed in `WithdrawEvent`. |
 | Single hot admin key, no on-chain limits | A backend compromise can drain the pool. | Optional per-transaction / per-epoch cap in `VaultState`. |
 | Events only in logs | Log truncation in large composed transactions can hide events. | `emit_cpi!`, or decode instruction data in the listener. |
+| Admin must be a keypair | `withdraw` must be a top-level instruction, so a multisig (e.g. Squads) or PDA admin, which signs through CPI, cannot approve withdrawals. `set_paused` still works from a multisig. | Keep the admin in an HSM/KMS or signer service; use a multisig for the upgrade authority. |

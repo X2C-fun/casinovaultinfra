@@ -36,7 +36,10 @@ export const runtime = "nodejs";
 const U64_MAX = 18_446_744_073_709_551_615n;
 const DEFAULT_MAX_WITHDRAW_SOL = "0.1";
 const RATE_LIMIT_WINDOW_MS = 60_000;
+/** Per client IP (when a trusted proxy reports it) and per wallet. */
 const RATE_LIMIT_MAX_REQUESTS = 5;
+/** Shared by every caller when no trusted proxy is configured. */
+const RATE_LIMIT_MAX_GLOBAL = 20;
 
 class HttpError extends Error {
   constructor(
@@ -60,6 +63,15 @@ function maxWithdrawLamports(): bigint {
   }
 }
 
+/**
+ * RPC for this route. `SOLANA_RPC_URL` is server-only, so a paid endpoint's
+ * API key stays off the client; `NEXT_PUBLIC_SOLANA_RPC_URL` is bundled into
+ * every browser and must never carry one.
+ */
+function serverRpcUrl(): string {
+  return process.env.SOLANA_RPC_URL?.trim() || SOLANA_RPC;
+}
+
 let cachedAdmin: Keypair | null = null;
 
 function loadAdminKeypair(): Keypair {
@@ -68,36 +80,71 @@ function loadAdminKeypair(): Keypair {
   if (!raw) {
     throw new Error("ADMIN_SECRET_KEY is not set");
   }
-  cachedAdmin = raw.startsWith("[")
-    ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw) as number[]))
-    : Keypair.fromSecretKey(bs58.decode(raw));
+  // Parse errors (JSON.parse, bs58, fromSecretKey) quote their input, which
+  // here is the secret key. Replace them with a message that carries none of it.
+  try {
+    cachedAdmin = raw.startsWith("[")
+      ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw) as number[]))
+      : Keypair.fromSecretKey(bs58.decode(raw));
+  } catch {
+    throw new Error(
+      "ADMIN_SECRET_KEY is malformed: expected a JSON array of 64 numbers or a base58 secret key",
+    );
+  }
   return cachedAdmin;
 }
 
-// Per-instance, in-memory fixed window. Bounds RPC spend and admin signing per
-// client IP; it is not a substitute for authentication.
+// Per-instance, in-memory fixed windows. They bound RPC spend and admin
+// signing; they are not a substitute for authentication.
 const hits = new Map<string, { count: number; resetAt: number }>();
 
-function clientIp(req: NextRequest): string {
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0]!.trim();
-  return req.headers.get("x-real-ip")?.trim() || "unknown";
+/**
+ * Number of reverse proxies in front of this app that append the caller's
+ * address to X-Forwarded-For (Vercel: 1; one nginx: 1; Cloudflare + nginx: 2).
+ * 0 (the default) means none is trusted.
+ */
+function trustedProxyHops(): number {
+  const n = Number(process.env.VAULT_DEMO_TRUSTED_PROXY_HOPS ?? "0");
+  return Number.isInteger(n) && n > 0 ? n : 0;
 }
 
-function rateLimit(ip: string): void {
+/**
+ * Rate-limit key for the caller.
+ *
+ * X-Forwarded-For is a list the client can pre-fill: only the entries appended
+ * by our own proxies are trustworthy, and those are the LAST ones. With N
+ * trusted hops the caller's address is the N-th entry from the right. Without
+ * a trusted proxy there is no address we can trust (Next.js route handlers do
+ * not expose the socket address), so every caller shares one global bucket
+ * rather than letting a spoofed header mint a fresh bucket per request.
+ */
+function clientKey(req: NextRequest): { key: string; limit: number } {
+  const hops = trustedProxyHops();
+  if (hops > 0) {
+    const chain = (req.headers.get("x-forwarded-for") ?? "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const ip = chain[chain.length - hops];
+    if (ip) return { key: `ip:${ip}`, limit: RATE_LIMIT_MAX_REQUESTS };
+  }
+  return { key: "global", limit: RATE_LIMIT_MAX_GLOBAL };
+}
+
+function rateLimit(key: string, limit: number): void {
   const now = Date.now();
   if (hits.size > 10_000) {
     for (const [key, entry] of hits) {
       if (entry.resetAt <= now) hits.delete(key);
     }
   }
-  const entry = hits.get(ip);
+  const entry = hits.get(key);
   if (!entry || entry.resetAt <= now) {
-    hits.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    hits.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
     return;
   }
   entry.count += 1;
-  if (entry.count > RATE_LIMIT_MAX_REQUESTS) {
+  if (entry.count > limit) {
     throw new HttpError(429, "Too many withdrawal requests. Try again in a minute.");
   }
 }
@@ -154,7 +201,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    rateLimit(clientIp(req));
+    const caller = clientKey(req);
+    rateLimit(caller.key, caller.limit);
 
     const body = (await req.json().catch(() => null)) as {
       user?: unknown;
@@ -163,6 +211,9 @@ export async function POST(req: NextRequest) {
     if (!body) throw new HttpError(400, "Request body must be JSON");
 
     const user = parseUser(body.user);
+    // Also per wallet: a caller who rotates addresses still cannot request
+    // more than a few approvals for the same recipient.
+    rateLimit(`user:${user.toBase58()}`, RATE_LIMIT_MAX_REQUESTS);
     const lamports = parseLamports(body.amountLamports);
     const cap = maxWithdrawLamports();
     if (lamports > cap) {
@@ -173,7 +224,13 @@ export async function POST(req: NextRequest) {
     }
 
     const admin = loadAdminKeypair();
-    const connection = new Connection(SOLANA_RPC, "confirmed");
+    if (user.equals(admin.publicKey)) {
+      // With the admin as user, the admin is also fee payer and the only
+      // signer, so partialSign would return a COMPLETE transaction that anyone
+      // could submit. House withdrawals go through the CLI, not this route.
+      throw new HttpError(400, "user must not be the vault admin");
+    }
+    const connection = new Connection(serverRpcUrl(), "confirmed");
     const program = new Program<CasinoVault>(VAULT_IDL, { connection });
     const [vaultState] = deriveVaultStatePda(PROGRAM_ID);
     const [poolVault] = derivePoolVaultPda(PROGRAM_ID);
