@@ -8,10 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.1.1] - not yet deployed
 
-Devnet still runs 0.1.0. The binary grew by about 1.6 KB, so extend the
-program account before upgrading (see "Upgrading the deployed program" in the
-README). Account layout, PDA seeds, instruction arguments and existing error
-codes are unchanged.
+New program ID `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7`. The 0.1.0 program at
+`DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` was deployed by another team and is not
+upgraded; 0.1.1 is a fresh deployment, so no account migration or extension is
+needed. Account layout, PDA seeds, instruction arguments and existing error
+codes are unchanged from 0.1.0.
 
 ### Program
 

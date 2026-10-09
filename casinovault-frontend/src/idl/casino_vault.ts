@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/casino_vault.json`.
  */
 export type CasinoVault = {
-  "address": "DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY",
+  "address": "EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7",
   "metadata": {
     "name": "casinoVault",
     "version": "0.1.1",

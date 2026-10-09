@@ -6,12 +6,12 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-casino_vault = "DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY"
+casino_vault = "EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7"
 # Test fixture only (forwards vault calls through CPI); never deployed.
 cpi_probe = "39Uobb8yLSbbXqx6izPWWCu6v9F9cRQduBAYSbPFEdMt"
 
 [programs.devnet]
-casino_vault = "DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY"
+casino_vault = "EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7"
 
 [provider]
 cluster = "localnet"

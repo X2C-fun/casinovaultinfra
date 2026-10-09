@@ -8,16 +8,16 @@ backend database, which is driven by the events emitted here.
 
 | Item              | Value                                          |
 | ----------------- | ---------------------------------------------- |
-| Program ID        | `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` |
+| Program ID        | `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7` |
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
 | Rust (SBF)        | `1.84.0`, edition 2021                         |
-| Deployed clusters | devnet (demo — see note below)                 |
+| Deployed clusters | none yet (devnet deployment pending)           |
 
-> **Status: devnet demo, not audited, not for mainnet funds.** The public devnet
-> instance uses one key as both upgrade authority and vault admin
-> (`5ddTS84UFxK8y2qELjvouw7xtcgBAPxk6JuM3FTyLfoa`). That is a demo shortcut, not a
-> reference configuration — this README tells you to keep them separate. Read
+> **Status: not audited, not for mainnet funds.** v0.1.1 is a fresh deployment
+> under the program ID above. An earlier v0.1.0 build at
+> `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` was deployed by another team; this repository
+> neither controls nor upgrades it. Read
 > [Backend withdraw flow](#backend-withdraw-flow) and [Known limitations](#known-limitations)
 > before building on it.
 
@@ -177,9 +177,9 @@ https://faucet.solana.com and paste the `wallet.json` pubkey.
 `target/` is not in git, so a fresh clone has **no**
 `target/deploy/casino_vault-keypair.json`.
 
-- **Upgrading the existing devnet program
-  (`DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`)** — you need the original
-  `wallet.json` (upgrade authority). Do **not** run `anchor deploy`: a fresh
+- **Upgrading this repository's devnet program
+  (`EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7`)** — you need its upgrade
+  authority keypair. Do **not** run `anchor deploy`: a fresh
   clone's generated `target/deploy/casino_vault-keypair.json` is a different
   key, so it would create a new program at a random address. Build (Step 5),
   then follow [Upgrading the deployed program](#upgrading-the-deployed-program)
@@ -414,18 +414,17 @@ Only the upgrade authority (`wallet.json` that deployed it) can upgrade.
 A program account has a fixed size. If the new `.so` is larger than the
 deployed one, the upgrade is rejected until you extend the account. Compare
 `solana program show <PROGRAM_ID>` (`Data Length`) with
-`ls -l target/deploy/casino_vault.so`, and extend by at least the difference.
-For example, v0.1.1 is about 1.6 KB larger than the v0.1.0 now on devnet:
+`ls -l target/deploy/casino_vault.so`, and extend by at least the difference:
 
 ```bash
-solana program extend DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY 4096 \
+solana program extend <PROGRAM_ID> <ADDITIONAL_BYTES> \
   --url https://api.devnet.solana.com
 ```
 
 ```bash
 anchor build
 anchor upgrade target/deploy/casino_vault.so \
-  --program-id DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY \
+  --program-id EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7 \
   --provider.cluster devnet
 ```
 

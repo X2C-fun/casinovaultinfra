@@ -40,7 +40,16 @@ import {
 } from "./utils";
 
 describe("casino_vault", () => {
-  const provider = anchor.AnchorProvider.env();
+  // `AnchorProvider.env()` defaults to "processed": a blockhash fetched at
+  // that level can be unknown to the bank that simulates the transaction a
+  // moment later, which made tests fail at random with "Blockhash not found".
+  // "confirmed" blockhashes are always known to a "confirmed" simulation.
+  const envProvider = anchor.AnchorProvider.env();
+  const provider = new anchor.AnchorProvider(
+    new anchor.web3.Connection(envProvider.connection.rpcEndpoint, "confirmed"),
+    envProvider.wallet,
+    { commitment: "confirmed", preflightCommitment: "confirmed" },
+  );
   anchor.setProvider(provider);
 
   const program = anchor.workspace.casinoVault as Program<CasinoVault>;

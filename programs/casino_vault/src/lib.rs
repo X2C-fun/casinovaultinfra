@@ -43,7 +43,7 @@ pub use events::*;
 pub use instructions::*;
 pub use state::VaultState;
 
-declare_id!("DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY");
+declare_id!("EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7");
 
 #[program]
 pub mod casino_vault {
