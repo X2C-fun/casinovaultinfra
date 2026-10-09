@@ -583,29 +583,58 @@ The safe sequence:
 
 1. Authenticate the user and lock their balance row (database transaction /
    `SELECT … FOR UPDATE`, or an atomic conditional update).
-2. Check balance, limits, and anti-cheat. Reject if `available < amount`.
+2. Check balance, limits, and anti-cheat. Reject if `available < amount`, and
+   reject if the user **already has an open hold**. One open hold per user is
+   required, not optional: it is what lets the listener match a
+   `WithdrawEvent` to its hold (step 6), because v0.1 `withdraw` carries no
+   request ID.
 3. **Place a hold** for `amount` in the same transaction (move it from
-   `available` to `pending_withdrawal`, keyed by a withdrawal ID). Commit.
-4. Fetch a blockhash, build `withdraw` with the user as fee payer, partially
-   sign with the **admin** key. Store the transaction signature and
-   `lastValidBlockHeight` on the hold.
-5. Return the transaction; the user signs and submits.
-6. Settle the hold:
-   - Signature confirmed (finalized) → convert the hold to a debit.
-   - Current block height passes `lastValidBlockHeight` and the signature never
-     landed → release the hold back to `available`.
-   - Never release a hold while the transaction can still land.
+   `available` to `pending_withdrawal`). Commit.
+4. Fetch a blockhash, build `withdraw` with the user as fee payer, and
+   partially sign with the **admin** key. Store `lastValidBlockHeight` on the
+   hold.
 
-Allow at most one open hold per user if you want the simplest invariant.
+   Do **not** expect to store the transaction signature here. A transaction's
+   signature is its fee payer's signature, which is the user's, and it does
+   not exist until the user signs.
+5. Return the transaction. The user signs and submits it, either through your
+   backend or straight to an RPC node; your backend cannot prevent the latter,
+   so settlement must not depend on seeing the signed transaction.
+6. Settle the hold from finalized chain data:
+   - A finalized, successful transaction contains a `WithdrawEvent` whose
+     `user` has an open hold → check `amount` equals the hold, then convert
+     the hold to a debit and record the transaction signature. Because a user
+     can hold at most one approval, the event can only belong to that hold.
+   - The listener has processed every finalized block up to a block height
+     greater than the hold's `lastValidBlockHeight`, and no such event was
+     seen → the transaction can no longer land; release the hold back to
+     `available`.
+   - Never release a hold before both conditions of the previous point hold.
+     A block-height check alone is not enough if your listener is lagging.
 
-Two more rules for the listener:
+House withdrawals (admin as both user and admin) bypass this flow; exclude the
+admin key when matching events to holds.
 
-- `WithdrawEvent` cannot be matched to an approval except by transaction
-  signature — reconcile holds by signature, not by amount.
+Rules for the listener:
+
+- **Ignore every transaction whose `meta.err` is set.** A failed transaction is
+  rolled back, but its logs still contain every event emitted before the
+  failing instruction. Example: `[deposit(1 SOL), a transfer that fails]`
+  moves nothing, yet its logs carry a `DepositEvent` for 1 SOL; crediting it
+  hands out free balance that can be withdrawn as real SOL. Anchor's
+  `program.addEventListener` already skips failed transactions; if you fetch
+  transactions with `getTransaction` and parse them with `EventParser`, you
+  must check `meta.err` yourself (see `getTxDetails` in `tests/utils.ts`).
+- Credit and debit only from **finalized** transactions. Use the websocket
+  feed for fast UI updates, not for balances.
+- Never settle a hold by amount alone; match on `user` first (see step 6).
 - SOL sent to the pool PDA with a plain System transfer produces **no**
   `DepositEvent`. Never credit balances from pool balance changes; the
   reconciliation in the [Mainnet checklist](#mainnet-checklist) covers the
   difference.
+
+The reference frontend's demo route (`/api/withdraw`) has no ledger, so it
+skips the hold entirely; it is not an implementation of this flow.
 
 ---
 
@@ -647,7 +676,8 @@ with server-side admin co-signing via `/api/withdraw`.
 > **The withdraw route is a demo.** It has no user accounts or balances, so it
 > would co-sign a withdrawal for anyone. It returns **501** unless you set
 > `VAULT_DEMO_UNSAFE_WITHDRAW=true`, and even then caps each request at
-> `VAULT_DEMO_MAX_WITHDRAW_SOL` (default 0.1) and rate-limits per IP. Never
+> `VAULT_DEMO_MAX_WITHDRAW_SOL` (default 0.1) and rate-limits per wallet and per
+> client (see `VAULT_DEMO_TRUSTED_PROXY_HOPS`). Never
 > enable it with a funded mainnet admin key. A real backend follows
 > [Backend withdraw flow](#backend-withdraw-flow).
 
@@ -667,6 +697,7 @@ npm run dev        # http://localhost:3000
 | `ADMIN_SECRET_KEY`             | server only | Admin keypair; co-signs withdrawals                  |
 | `VAULT_DEMO_UNSAFE_WITHDRAW`   | server only | Must be `true` to enable the demo withdraw route     |
 | `VAULT_DEMO_MAX_WITHDRAW_SOL`  | server only | Per-request cap for the demo route (default `0.1`)   |
+| `VAULT_DEMO_TRUSTED_PROXY_HOPS` | server only | Proxies that append to `X-Forwarded-For` (Vercel `1`); `0` = one shared rate-limit bucket |
 
 Before asking the wallet to sign, the UI decodes the server's transaction and
 refuses anything other than a single `withdraw` of the requested amount to the
@@ -757,6 +788,6 @@ custody protocol should have and this program (v0.1) does not yet.
 | ---------- | ------ | -------------- |
 | `initialize` can be front-run | Whoever lands `initialize` first owns the vault. | Require the signer to be the program's upgrade authority. |
 | No admin rotation | A leaked admin can unpause as easily as you can pause; recovery needs a program upgrade. | Two-step `propose_admin` / `accept_admin`, controlled by the upgrade authority. |
-| No request ID on `withdraw` | Backends must hold balances at approval time (see above) and reconcile by signature. | `request_id: u64` argument echoed in `WithdrawEvent`. |
+| No request ID on `withdraw` | Backends must hold balances at approval time, allow one open hold per user, and match events by user (see above). | `request_id: u64` argument echoed in `WithdrawEvent`. |
 | Single hot admin key, no on-chain limits | A backend compromise can drain the pool. | Optional per-transaction / per-epoch cap in `VaultState`. |
 | Events only in logs | Log truncation in large composed transactions can hide events. | `emit_cpi!`, or decode instruction data in the listener. |

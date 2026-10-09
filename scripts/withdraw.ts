@@ -75,13 +75,13 @@ async function main() {
     systemProgram: SystemProgram.programId,
   });
 
-  const signers = admin.publicKey.equals(user.publicKey)
-    ? [user]
-    : [user, admin];
-
+  // The provider wallet (the user) signs and pays; the admin co-signs. The
+  // transaction is signed once and only ever re-sent byte-for-byte, so a
+  // timeout can never turn into a second payout.
   const signature = await sendWithRetry(
-    () =>
-      builder.signers(signers).rpc({ commitment: "confirmed", maxRetries: 5 }),
+    provider,
+    () => builder.transaction(),
+    [admin],
     "withdraw",
   );
 

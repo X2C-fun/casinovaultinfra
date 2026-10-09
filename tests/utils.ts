@@ -81,6 +81,9 @@ export interface TxDetails {
   fee: number;
   /** Account that paid the fee, i.e. the first signer of the message. */
   feePayer: PublicKey;
+  /** `meta.err` of the transaction; `null` when it succeeded. */
+  err: unknown;
+  /** Program events. Always empty for a failed transaction. */
   events: { name: string; data: any }[];
 }
 
@@ -96,16 +99,23 @@ export async function getTxDetails(
   });
   assert.isNotNull(tx, `transaction ${signature} not found`);
 
+  // A failed transaction is rolled back, but its logs still contain every
+  // event emitted before the failing instruction. A listener that parses them
+  // would credit deposits that never happened, so failed transactions yield
+  // no events at all.
+  const err = tx!.meta!.err;
   const parser = new anchor.EventParser(program.programId, program.coder);
-  const events = [...parser.parseLogs(tx!.meta!.logMessages!)].map((event) => ({
-    name: event.name,
-    data: event.data,
-  }));
+  const events = err
+    ? []
+    : [...parser.parseLogs(tx!.meta!.logMessages!)].map((event) => ({
+        name: event.name,
+        data: event.data,
+      }));
 
   // The fee payer is always the first signer of the compiled message.
   const feePayer = tx!.transaction.message.staticAccountKeys[0];
 
-  return { fee: tx!.meta!.fee, feePayer, events };
+  return { fee: tx!.meta!.fee, feePayer, err, events };
 }
 
 /**

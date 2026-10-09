@@ -18,6 +18,7 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
+  Transaction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { assert } from "chai";
@@ -587,6 +588,62 @@ describe("casino_vault", () => {
   });
 
   describe("backend listener", () => {
+    it("ignores the DepositEvent left in the logs of a failed transaction", async () => {
+      // [deposit(1 SOL), transfer that cannot succeed]: the whole transaction
+      // reverts, yet the deposit's event is already in the logs. A listener
+      // that does not check `meta.err` would credit 1 SOL for a fee.
+      const attacker = await newFundedWallet(provider, 2 * LAMPORTS_PER_SOL);
+      const poolBefore = await balanceOf(provider, poolVault);
+
+      const depositIx = await program.methods
+        .deposit(new BN(LAMPORTS_PER_SOL))
+        .accountsPartial(depositAccounts(attacker.publicKey))
+        .instruction();
+      const failingIx = SystemProgram.transfer({
+        fromPubkey: attacker.publicKey,
+        toPubkey: provider.wallet.publicKey,
+        lamports: 5 * LAMPORTS_PER_SOL,
+      });
+
+      const tx = new Transaction().add(depositIx, failingIx);
+      const latest = await connection.getLatestBlockhash("confirmed");
+      tx.feePayer = attacker.publicKey;
+      tx.recentBlockhash = latest.blockhash;
+      tx.sign(attacker);
+      const signature = await connection.sendRawTransaction(tx.serialize(), {
+        skipPreflight: true,
+      });
+      await connection.confirmTransaction(
+        { signature, ...latest },
+        "confirmed",
+      );
+
+      const raw = await connection.getTransaction(signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      assert.isNotNull(raw!.meta!.err, "the transaction must have failed");
+      const parser = new anchor.EventParser(program.programId, program.coder);
+      assert.lengthOf(
+        [...parser.parseLogs(raw!.meta!.logMessages!)],
+        1,
+        "the raw logs do carry a DepositEvent",
+      );
+
+      const details = await getTxDetails(program, provider, signature);
+      assert.isNotNull(details.err);
+      assert.lengthOf(
+        details.events,
+        0,
+        "a failed transaction yields no events",
+      );
+      assert.equal(
+        await balanceOf(provider, poolVault),
+        poolBefore,
+        "no lamports moved",
+      );
+    });
+
     it("delivers DepositEvent over the websocket subscription", async () => {
       const player = await newFundedWallet(provider, 3 * LAMPORTS_PER_SOL);
       const amount = LAMPORTS_PER_SOL;

@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- README listener rules: ignore transactions whose `meta.err` is set. A failed
+  transaction keeps the logs of the instructions before the failure, so
+  `[deposit, failing instruction]` showed a `DepositEvent` for SOL that never
+  moved. `getTxDetails` in the tests returns no events for failed
+  transactions, with a regression test.
+- README withdraw flow: holds are settled by matching `WithdrawEvent.user` under
+  a required one-open-hold-per-user rule, instead of by a transaction signature
+  the backend cannot know at approval time.
+- Demo `/api/withdraw` rate limit no longer trusts a client-supplied
+  `X-Forwarded-For`. It reads the caller's IP only from proxies declared in
+  `VAULT_DEMO_TRUSTED_PROXY_HOPS`, otherwise uses one shared bucket, and also
+  limits per wallet.
+- Scripts: `sendWithRetry` signs once and re-sends the same bytes; it builds a
+  new transaction only after the previous one provably expired. A timeout
+  after a successful send can no longer cause a second deposit or withdrawal.
+
 No on-chain program changes; the deployed devnet program is unchanged.
 
 ### Security

@@ -41,6 +41,7 @@ async function main() {
   console.log("depositor:", depositor.toBase58());
 
   const signature = await sendWithRetry(
+    provider,
     () =>
       program.methods
         .deposit(new BN(amount))
@@ -50,7 +51,8 @@ async function main() {
           poolVault,
           systemProgram: SystemProgram.programId,
         })
-        .rpc({ commitment: "confirmed", maxRetries: 5 }),
+        .transaction(),
+    [],
     "deposit",
   );
 

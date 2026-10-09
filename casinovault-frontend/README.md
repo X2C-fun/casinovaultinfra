@@ -18,7 +18,9 @@ Users can:
 >
 > - returns **HTTP 501** unless `VAULT_DEMO_UNSAFE_WITHDRAW=true`;
 > - when enabled, caps each request at `VAULT_DEMO_MAX_WITHDRAW_SOL`
->   (default `0.1`) and rate-limits each IP to 5 requests per minute.
+>   (default `0.1`) and rate-limits each wallet to 5 requests per minute, plus
+>   each client IP (5/min) when `VAULT_DEMO_TRUSTED_PROXY_HOPS` names your
+>   proxies, or all callers together (20/min) when it does not.
 >
 > A production backend must authenticate the user and **hold the balance at
 > approval time** — see "Backend withdraw flow" in the repository README.
@@ -48,6 +50,7 @@ Open http://localhost:3000
 | `ADMIN_SECRET_KEY` | **server only** | Admin keypair JSON array or base58 — co-signs withdrawals |
 | `VAULT_DEMO_UNSAFE_WITHDRAW` | **server only** | Must be exactly `true` to enable the demo withdraw route |
 | `VAULT_DEMO_MAX_WITHDRAW_SOL` | **server only** | Per-request cap for the demo route (default `0.1`) |
+| `VAULT_DEMO_TRUSTED_PROXY_HOPS` | **server only** | Reverse proxies that append to `X-Forwarded-For` (Vercel `1`, nginx `1`, Cloudflare + nginx `2`). `0` (default) trusts none and uses one shared bucket. |
 
 Never put `ADMIN_SECRET_KEY` in a `NEXT_PUBLIC_*` variable.
 
