@@ -6,12 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.1] - not yet deployed
+## [0.1.1] - 2026-10-09
 
 New program ID `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7`. The 0.1.0 program at
 `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` was deployed by another team and is not
 upgraded; 0.1.1 is a fresh deployment, so no account migration or extension is
-needed. Account layout, PDA seeds, instruction arguments and existing error
+needed. Deployed to devnet in slot 509121525 and initialized immediately with a
+separate admin key; deposit, withdraw, player withdraw and pause verified
+there. Account layout, PDA seeds, instruction arguments and existing error
 codes are unchanged from 0.1.0.
 
 ### Program

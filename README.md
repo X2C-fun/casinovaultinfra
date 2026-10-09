@@ -12,12 +12,22 @@ backend database, which is driven by the events emitted here.
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
 | Rust (SBF)        | `1.84.0`, edition 2021                         |
-| Deployed clusters | none yet (devnet deployment pending)           |
+| Deployed clusters | devnet (v0.1.1, slot 509121525)                |
 
 > **Status: not audited, not for mainnet funds.** v0.1.1 is a fresh deployment
 > under the program ID above. An earlier v0.1.0 build at
 > `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` was deployed by another team; this repository
-> neither controls nor upgrades it. Read
+> neither controls nor upgrades it.
+>
+> The devnet deployment keeps the roles separate, as this README recommends:
+>
+> | Role | Address |
+> | ---- | ------- |
+> | Upgrade authority | `Hithh6rJmGiWRdkBsUKqJyDMnEos1fEb5baumpbYwEhr` |
+> | Vault admin (`VaultState.admin`) | `Agb3fnkpc7U1u5y2GutLpnGfKQcWLHVW4PKJ18CwUgDr` |
+> | Pool vault PDA | derived from `["pool_vault"]` |
+>
+> Read
 > [Backend withdraw flow](#backend-withdraw-flow) and [Known limitations](#known-limitations)
 > before building on it.
 
