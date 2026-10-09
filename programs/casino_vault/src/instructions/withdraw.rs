@@ -6,7 +6,9 @@ use crate::constants::{POOL_VAULT_SEED, VAULT_STATE_SEED};
 use crate::errors::VaultError;
 use crate::events::WithdrawEvent;
 use crate::state::VaultState;
-use crate::utils::{current_timestamp, transfer_out_of_vault, withdrawable_lamports};
+use crate::utils::{
+    current_timestamp, require_top_level, transfer_out_of_vault, withdrawable_lamports,
+};
 
 /// Accounts for [`process_withdraw`].
 #[derive(Accounts)]
@@ -53,6 +55,7 @@ pub struct Withdraw<'info> {
 /// point of the shared vault. The only on-chain limit is the pool's withdrawable
 /// balance, which excludes the rent reserve. Entitlement is the backend's call.
 pub fn process_withdraw(ctx: Context<Withdraw>, amount: u64) -> Result<()> {
+    require_top_level()?;
     require!(amount > 0, VaultError::InvalidAmount);
 
     let available = withdrawable_lamports(&ctx.accounts.pool_vault.to_account_info())?;

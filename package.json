@@ -8,7 +8,7 @@
     "build": "anchor build",
     "test": "anchor test",
     "test:skip-build": "anchor test --skip-build",
-    "deploy:devnet": "anchor deploy --provider.cluster devnet",
+    "deploy:devnet": "anchor deploy -p casino_vault --provider.cluster devnet",
     "read": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/read.ts",
     "initialize": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/initialize.ts",
     "deposit": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/deposit.ts",

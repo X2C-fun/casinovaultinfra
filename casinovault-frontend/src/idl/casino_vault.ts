@@ -8,7 +8,7 @@ export type CasinoVault = {
   "address": "DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY",
   "metadata": {
     "name": "casinoVault",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "spec": "0.1.0",
     "description": "Pooled SOL custody program: holds player funds for a casino backend, with admin-approved withdrawals."
   },
@@ -463,6 +463,11 @@ export type CasinoVault = {
       "code": 6005,
       "name": "vaultPaused",
       "msg": "The vault is paused"
+    },
+    {
+      "code": 6006,
+      "name": "cpiNotAllowed",
+      "msg": "Deposits and withdrawals must be top-level instructions, not CPI"
     }
   ],
   "types": [

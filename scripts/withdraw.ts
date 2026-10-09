@@ -18,11 +18,12 @@
 
 import * as fs from "fs";
 import { BN } from "@coral-xyz/anchor";
-import { Keypair, LAMPORTS_PER_SOL, SystemProgram } from "@solana/web3.js";
+import { Keypair, SystemProgram } from "@solana/web3.js";
 import {
   derivePoolVaultPda,
   deriveVaultStatePda,
   lamportsToSol,
+  solToLamports,
   loadProgram,
   loadProvider,
   sendWithRetry,
@@ -40,9 +41,11 @@ async function main() {
     process.exit(1);
   }
 
-  const amount = Math.round(parseFloat(solArg) * LAMPORTS_PER_SOL);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    console.error("Amount must be a positive SOL value.");
+  let amount: bigint;
+  try {
+    amount = solToLamports(solArg);
+  } catch (err) {
+    console.error((err as Error).message);
     process.exit(1);
   }
 
@@ -67,13 +70,15 @@ async function main() {
   console.log("user: ", user.publicKey.toBase58());
   console.log("admin:", admin.publicKey.toBase58());
 
-  const builder = program.methods.withdraw(new BN(amount)).accountsPartial({
-    user: user.publicKey,
-    admin: admin.publicKey,
-    vaultState,
-    poolVault,
-    systemProgram: SystemProgram.programId,
-  });
+  const builder = program.methods
+    .withdraw(new BN(amount.toString()))
+    .accountsPartial({
+      user: user.publicKey,
+      admin: admin.publicKey,
+      vaultState,
+      poolVault,
+      systemProgram: SystemProgram.programId,
+    });
 
   // The provider wallet (the user) signs and pays; the admin co-signs. The
   // transaction is signed once and only ever re-sent byte-for-byte, so a

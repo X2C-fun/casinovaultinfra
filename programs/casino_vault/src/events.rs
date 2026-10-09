@@ -2,8 +2,12 @@
 //!
 //! These logs are the contract between the program and the backend listener.
 //! Each event carries the resulting pool balance and a timestamp so the backend
-//! can reconcile (and de-duplicate) database updates without having to replay
-//! transactions.
+//! can reconcile against the pool without replaying transactions.
+//!
+//! Event contents are NOT unique: two identical deposits in one slot produce
+//! identical events. De-duplicate on where the event came from, i.e.
+//! `(transaction signature, instruction index, event index)`, never on its
+//! fields.
 
 use anchor_lang::prelude::*;
 

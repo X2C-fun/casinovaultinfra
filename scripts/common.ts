@@ -14,26 +14,18 @@ import {
 } from "@solana/web3.js";
 import { CasinoVault } from "../target/types/casino_vault";
 
-export const PROGRAM_ID = new PublicKey(
-  "DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY",
-);
-
 export const VAULT_STATE_SEED = Buffer.from("vault_state");
 export const POOL_VAULT_SEED = Buffer.from("pool_vault");
 
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 /** Derives the singleton vault state PDA. */
-export function deriveVaultStatePda(
-  programId: PublicKey = PROGRAM_ID,
-): [PublicKey, number] {
+export function deriveVaultStatePda(programId: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([VAULT_STATE_SEED], programId);
 }
 
 /** Derives the singleton pool vault PDA. */
-export function derivePoolVaultPda(
-  programId: PublicKey = PROGRAM_ID,
-): [PublicKey, number] {
+export function derivePoolVaultPda(programId: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([POOL_VAULT_SEED], programId);
 }
 
@@ -75,6 +67,35 @@ export function loadProgram(
   provider: anchor.AnchorProvider = loadProvider(),
 ): Program<CasinoVault> {
   return anchor.workspace.casinoVault as Program<CasinoVault>;
+}
+
+const LAMPORTS_PER_SOL_BIGINT = BigInt(1_000_000_000);
+const U64_MAX = BigInt("18446744073709551615");
+
+/**
+ * Parses a plain decimal SOL amount ("0.5", "12", ".25") to exact lamports.
+ * Rejects exponents ("1e3"), signs, separators ("1,5"), units ("0.5SOL"),
+ * more than 9 decimals, zero, and anything above u64. These scripts sign with
+ * the admin key, so a typo must fail instead of moving a different amount.
+ */
+export function solToLamports(input: string): bigint {
+  const value = input.trim();
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) {
+    throw new Error(
+      `invalid SOL amount "${input}" (use a plain decimal, e.g. 0.25)`,
+    );
+  }
+  const [whole, fraction = ""] = value.split(".");
+  if (fraction.length > 9) {
+    throw new Error(`"${input}" has more than 9 decimal places`);
+  }
+  const lamports =
+    BigInt(whole || "0") * LAMPORTS_PER_SOL_BIGINT +
+    BigInt(fraction.padEnd(9, "0"));
+  if (lamports < BigInt(1))
+    throw new Error("amount must be at least 1 lamport");
+  if (lamports > U64_MAX) throw new Error("amount exceeds u64");
+  return lamports;
 }
 
 /** Lamports → SOL for human-readable logs. */
@@ -141,6 +162,11 @@ export interface SendOptions {
   maxBuilds?: number;
   /** Delay between re-sends of the same signed transaction. */
   resendIntervalMs?: number;
+  /**
+   * Give up after this long even if expiry could not be proven (for example
+   * the RPC keeps failing). Default 5 minutes.
+   */
+  deadlineMs?: number;
 }
 
 /**
@@ -162,8 +188,13 @@ export async function sendWithRetry(
   build: () => Promise<Transaction>,
   extraSigners: Keypair[],
   label: string,
-  { maxBuilds = 3, resendIntervalMs = 2_000 }: SendOptions = {},
+  {
+    maxBuilds = 3,
+    resendIntervalMs = 2_000,
+    deadlineMs = 5 * 60_000,
+  }: SendOptions = {},
 ): Promise<string> {
+  const deadline = Date.now() + deadlineMs;
   const connection = provider.connection;
   const payer = provider.wallet.publicKey;
   const others = extraSigners.filter((k) => !k.publicKey.equals(payer));
@@ -211,6 +242,19 @@ export async function sendWithRetry(
       }
 
       await sleep(resendIntervalMs);
+
+      if (Date.now() > deadline) {
+        // Expiry was never proven, so the transaction may still land. Do NOT
+        // build another one; hand the decision to the operator.
+        if ((await signatureStatus(connection, signature)) === "landed") {
+          return signature;
+        }
+        throw new Error(
+          `${label}: gave up after ${Math.round(deadlineMs / 1000)}s with status UNKNOWN. ` +
+            `Check signature ${signature} on an explorer before retrying; it may still land ` +
+            `until block height ${lastValidBlockHeight}.`,
+        );
+      }
 
       const status = await signatureStatus(connection, signature);
       if (status === "landed") return signature;

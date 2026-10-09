@@ -63,6 +63,15 @@ function maxWithdrawLamports(): bigint {
   }
 }
 
+/**
+ * RPC for this route. `SOLANA_RPC_URL` is server-only, so a paid endpoint's
+ * API key stays off the client; `NEXT_PUBLIC_SOLANA_RPC_URL` is bundled into
+ * every browser and must never carry one.
+ */
+function serverRpcUrl(): string {
+  return process.env.SOLANA_RPC_URL?.trim() || SOLANA_RPC;
+}
+
 let cachedAdmin: Keypair | null = null;
 
 function loadAdminKeypair(): Keypair {
@@ -71,9 +80,17 @@ function loadAdminKeypair(): Keypair {
   if (!raw) {
     throw new Error("ADMIN_SECRET_KEY is not set");
   }
-  cachedAdmin = raw.startsWith("[")
-    ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw) as number[]))
-    : Keypair.fromSecretKey(bs58.decode(raw));
+  // Parse errors (JSON.parse, bs58, fromSecretKey) quote their input, which
+  // here is the secret key. Replace them with a message that carries none of it.
+  try {
+    cachedAdmin = raw.startsWith("[")
+      ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(raw) as number[]))
+      : Keypair.fromSecretKey(bs58.decode(raw));
+  } catch {
+    throw new Error(
+      "ADMIN_SECRET_KEY is malformed: expected a JSON array of 64 numbers or a base58 secret key",
+    );
+  }
   return cachedAdmin;
 }
 
@@ -207,7 +224,13 @@ export async function POST(req: NextRequest) {
     }
 
     const admin = loadAdminKeypair();
-    const connection = new Connection(SOLANA_RPC, "confirmed");
+    if (user.equals(admin.publicKey)) {
+      // With the admin as user, the admin is also fee payer and the only
+      // signer, so partialSign would return a COMPLETE transaction that anyone
+      // could submit. House withdrawals go through the CLI, not this route.
+      throw new HttpError(400, "user must not be the vault admin");
+    }
+    const connection = new Connection(serverRpcUrl(), "confirmed");
     const program = new Program<CasinoVault>(VAULT_IDL, { connection });
     const [vaultState] = deriveVaultStatePda(PROGRAM_ID);
     const [poolVault] = derivePoolVaultPda(PROGRAM_ID);

@@ -24,6 +24,7 @@ import {
 import { assert } from "chai";
 
 import { CasinoVault } from "../target/types/casino_vault";
+import { CpiProbe } from "../target/types/cpi_probe";
 import {
   VAULT_STATE_SIZE,
   airdrop,
@@ -43,6 +44,8 @@ describe("casino_vault", () => {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.casinoVault as Program<CasinoVault>;
+  /** Test-only program that forwards vault calls through a CPI. */
+  const probe = anchor.workspace.cpiProbe as Program<CpiProbe>;
   const connection = provider.connection;
 
   /** Backend authority for the whole suite. */
@@ -521,6 +524,58 @@ describe("casino_vault", () => {
           .signers([player, admin])
           .rpc(),
         "InsufficientFunds",
+      );
+    });
+  });
+
+  describe("cross-program invocation", () => {
+    // Anchor's EventParser drops events emitted while another program is on
+    // the call stack, so a CPI'd deposit would never be credited and a CPI'd
+    // withdrawal would never settle its hold. The vault refuses both.
+
+    it("rejects a deposit forwarded by another program", async () => {
+      const player = await newFundedWallet(provider, 2 * LAMPORTS_PER_SOL);
+      const poolBefore = await balanceOf(provider, poolVault);
+
+      await expectAnchorError(
+        probe.methods
+          .forwardDeposit(new BN(LAMPORTS_PER_SOL))
+          .accountsPartial({
+            ...depositAccounts(player.publicKey),
+            vaultProgram: program.programId,
+          })
+          .signers([player])
+          .rpc(),
+        "CpiNotAllowed",
+      );
+      assert.equal(await balanceOf(provider, poolVault), poolBefore);
+    });
+
+    it("rejects a withdrawal forwarded by another program", async () => {
+      const player = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+      const poolBefore = await balanceOf(provider, poolVault);
+
+      await expectAnchorError(
+        probe.methods
+          .forwardWithdraw(new BN(LAMPORTS_PER_SOL))
+          .accountsPartial({
+            ...withdrawAccounts(player.publicKey),
+            vaultProgram: program.programId,
+          })
+          .signers([player, admin])
+          .rpc(),
+        "CpiNotAllowed",
+      );
+      assert.equal(await balanceOf(provider, poolVault), poolBefore);
+    });
+
+    it("still accepts the same deposit sent directly", async () => {
+      const player = await newFundedWallet(provider, 2 * LAMPORTS_PER_SOL);
+      const poolBefore = await balanceOf(provider, poolVault);
+      await deposit(player, LAMPORTS_PER_SOL);
+      assert.equal(
+        await balanceOf(provider, poolVault),
+        poolBefore + LAMPORTS_PER_SOL,
       );
     });
   });

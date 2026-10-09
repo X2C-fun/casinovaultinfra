@@ -40,4 +40,10 @@ pub enum VaultError {
     /// Deposits and withdrawals are suspended by the admin.
     #[msg("The vault is paused")]
     VaultPaused,
+
+    /// `deposit` or `withdraw` was invoked by another program (CPI) instead
+    /// of directly by the transaction. Events from CPI'd calls are invisible
+    /// to Anchor's event parser, so such a deposit could never be credited.
+    #[msg("Deposits and withdrawals must be top-level instructions, not CPI")]
+    CpiNotAllowed,
 }

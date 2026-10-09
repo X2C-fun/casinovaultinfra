@@ -1,6 +1,6 @@
 [package]
 name = "casino_vault"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pooled SOL custody program: holds player funds for a casino backend, with admin-approved withdrawals."
 edition = "2021"
 license = "MIT"

@@ -49,6 +49,7 @@ Open http://localhost:3000
 | `NEXT_PUBLIC_VAULT_PROGRAM_ID` | browser | Program ID of your deployment (defaults to the devnet demo) |
 | `ADMIN_SECRET_KEY` | **server only** | Admin keypair JSON array or base58 — co-signs withdrawals |
 | `VAULT_DEMO_UNSAFE_WITHDRAW` | **server only** | Must be exactly `true` to enable the demo withdraw route |
+| `SOLANA_RPC_URL` | **server only** | RPC for `/api/withdraw`; may carry an API key (falls back to the public one) |
 | `VAULT_DEMO_MAX_WITHDRAW_SOL` | **server only** | Per-request cap for the demo route (default `0.1`) |
 | `VAULT_DEMO_TRUSTED_PROXY_HOPS` | **server only** | Reverse proxies that append to `X-Forwarded-For` (Vercel `1`, nginx `1`, Cloudflare + nginx `2`). `0` (default) trusts none and uses one shared bucket. |
 

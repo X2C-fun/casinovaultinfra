@@ -6,8 +6,43 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - not yet deployed
+
+Devnet still runs 0.1.0. The binary grew by about 1.6 KB, so extend the
+program account before upgrading (see "Upgrading the deployed program" in the
+README). Account layout, PDA seeds, instruction arguments and existing error
+codes are unchanged.
+
+### Program
+
+- `deposit` and `withdraw` must be top-level instructions; calling them
+  through CPI fails with the new error `CpiNotAllowed` (6006). Anchor's event
+  parser drops events emitted from a CPI'd call, so a deposit routed through a
+  multisig or router moved SOL that no listener credited, and a wrapped
+  withdrawal could defeat hold settlement.
+- `programs/cpi_probe`: test-only fixture that forwards vault calls through
+  CPI, used by the regression tests. Never deployed.
+
 ### Security
 
+- README listener rules: de-duplicate events by
+  `(signature, instruction index, event index)`, never by contents; identical
+  deposits in one slot produce identical events.
+- README withdraw flow: one open hold per destination wallet; never co-sign a
+  transaction the backend did not build; persist the hold and its
+  `lastValidBlockHeight` before signing; an unmatched or mismatched
+  `WithdrawEvent` is an incident (alert, pause).
+- Demo `/api/withdraw` refuses `user` = admin, which would have returned a
+  fully signed transaction anyone could submit.
+- Demo `/api/withdraw` no longer leaks secret-key bytes into logs when
+  `ADMIN_SECRET_KEY` is malformed, and reads a server-only `SOLANA_RPC_URL`
+  so a paid RPC key is never bundled into the browser.
+- Frontend sends `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`,
+  `Referrer-Policy`, HSTS, and `Cache-Control: no-store` on API routes.
+- Scripts parse SOL amounts strictly (`1e3`, `1,5` and `0.5SOL` are
+  rejected) and `sendWithRetry` gives up with an explicit "status unknown"
+  error after 5 minutes instead of looping forever.
+- CI: actions pinned to commit SHAs; workflow token is read-only.
 - README listener rules: ignore transactions whose `meta.err` is set. A failed
   transaction keeps the logs of the instructions before the failure, so
   `[deposit, failing instruction]` showed a `DepositEvent` for SOL that never
@@ -24,9 +59,7 @@ All notable changes to this project are documented here. The format follows
   new transaction only after the previous one provably expired. A timeout
   after a successful send can no longer cause a second deposit or withdrawal.
 
-No on-chain program changes; the deployed devnet program is unchanged.
 
-### Security
 
 - Demo `/api/withdraw` route is disabled (HTTP 501) unless
   `VAULT_DEMO_UNSAFE_WITHDRAW=true`; when enabled it enforces a per-request cap
@@ -54,6 +87,12 @@ No on-chain program changes; the deployed devnet program is unchanged.
 
 ### Changed
 
+- `npm run deploy:devnet` deploys only `casino_vault` (`-p casino_vault`).
+- README: a fresh clone must not `anchor deploy` to the existing devnet
+  address; `avm` is installed from the `v0.32.1` tag with `--locked`.
+- `Anchor.toml`: test validator binds to `127.0.0.1`; stale registry removed.
+- Scripts derive PDAs from the loaded program's ID; the unused hardcoded
+  `PROGRAM_ID` was removed.
 - Program description no longer claims to be "non-custodial"; it is a pooled
   custody program with admin-approved withdrawals.
 - Frontend fonts are self-hosted via `@fontsource`, so builds need no network.

@@ -8,11 +8,12 @@
  */
 
 import { BN } from "@coral-xyz/anchor";
-import { LAMPORTS_PER_SOL, SystemProgram } from "@solana/web3.js";
+import { SystemProgram } from "@solana/web3.js";
 import {
   derivePoolVaultPda,
   deriveVaultStatePda,
   lamportsToSol,
+  solToLamports,
   loadProgram,
   loadProvider,
   sendWithRetry,
@@ -25,9 +26,11 @@ async function main() {
     process.exit(1);
   }
 
-  const amount = Math.round(parseFloat(solArg) * LAMPORTS_PER_SOL);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    console.error("Amount must be a positive SOL value.");
+  let amount: bigint;
+  try {
+    amount = solToLamports(solArg);
+  } catch (err) {
+    console.error((err as Error).message);
     process.exit(1);
   }
 
@@ -44,7 +47,7 @@ async function main() {
     provider,
     () =>
       program.methods
-        .deposit(new BN(amount))
+        .deposit(new BN(amount.toString()))
         .accountsPartial({
           depositor,
           vaultState,
