@@ -5,6 +5,7 @@
 //! particular) exists in exactly one place.
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::instruction::get_stack_height;
 use anchor_lang::system_program::{transfer, Transfer};
 
 use crate::constants::{POOL_VAULT_DATA_LEN, POOL_VAULT_SEED};
@@ -26,6 +27,24 @@ pub fn withdrawable_lamports(pool_vault: &AccountInfo) -> Result<u64> {
     Ok(pool_vault
         .lamports()
         .saturating_sub(pool_vault_rent_reserve()?))
+}
+
+/// Stack height of an instruction invoked directly by the transaction.
+const TRANSACTION_LEVEL_STACK_HEIGHT: usize = 1;
+
+/// Rejects the current instruction unless the transaction invoked it directly.
+///
+/// The backend credits and debits from `DepositEvent` / `WithdrawEvent`.
+/// Anchor's `EventParser` (and so `addEventListener`) drops events emitted
+/// while another program is on the call stack, so a deposit routed through a
+/// multisig or router would move SOL that no listener ever credits. Refusing
+/// CPI makes such a call fail loudly instead.
+pub fn require_top_level() -> Result<()> {
+    require!(
+        get_stack_height() == TRANSACTION_LEVEL_STACK_HEIGHT,
+        VaultError::CpiNotAllowed
+    );
+    Ok(())
 }
 
 /// Unix timestamp of the current slot, stamped onto every event.

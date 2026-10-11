@@ -18,11 +18,13 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
+  Transaction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { assert } from "chai";
 
 import { CasinoVault } from "../target/types/casino_vault";
+import { CpiProbe } from "../target/types/cpi_probe";
 import {
   VAULT_STATE_SIZE,
   airdrop,
@@ -38,10 +40,21 @@ import {
 } from "./utils";
 
 describe("casino_vault", () => {
-  const provider = anchor.AnchorProvider.env();
+  // `AnchorProvider.env()` defaults to "processed": a blockhash fetched at
+  // that level can be unknown to the bank that simulates the transaction a
+  // moment later, which made tests fail at random with "Blockhash not found".
+  // "confirmed" blockhashes are always known to a "confirmed" simulation.
+  const envProvider = anchor.AnchorProvider.env();
+  const provider = new anchor.AnchorProvider(
+    new anchor.web3.Connection(envProvider.connection.rpcEndpoint, "confirmed"),
+    envProvider.wallet,
+    { commitment: "confirmed", preflightCommitment: "confirmed" },
+  );
   anchor.setProvider(provider);
 
   const program = anchor.workspace.casinoVault as Program<CasinoVault>;
+  /** Test-only program that forwards vault calls through a CPI. */
+  const probe = anchor.workspace.cpiProbe as Program<CpiProbe>;
   const connection = provider.connection;
 
   /** Backend authority for the whole suite. */
@@ -524,6 +537,58 @@ describe("casino_vault", () => {
     });
   });
 
+  describe("cross-program invocation", () => {
+    // Anchor's EventParser drops events emitted while another program is on
+    // the call stack, so a CPI'd deposit would never be credited and a CPI'd
+    // withdrawal would never settle its hold. The vault refuses both.
+
+    it("rejects a deposit forwarded by another program", async () => {
+      const player = await newFundedWallet(provider, 2 * LAMPORTS_PER_SOL);
+      const poolBefore = await balanceOf(provider, poolVault);
+
+      await expectAnchorError(
+        probe.methods
+          .forwardDeposit(new BN(LAMPORTS_PER_SOL))
+          .accountsPartial({
+            ...depositAccounts(player.publicKey),
+            vaultProgram: program.programId,
+          })
+          .signers([player])
+          .rpc(),
+        "CpiNotAllowed",
+      );
+      assert.equal(await balanceOf(provider, poolVault), poolBefore);
+    });
+
+    it("rejects a withdrawal forwarded by another program", async () => {
+      const player = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+      const poolBefore = await balanceOf(provider, poolVault);
+
+      await expectAnchorError(
+        probe.methods
+          .forwardWithdraw(new BN(LAMPORTS_PER_SOL))
+          .accountsPartial({
+            ...withdrawAccounts(player.publicKey),
+            vaultProgram: program.programId,
+          })
+          .signers([player, admin])
+          .rpc(),
+        "CpiNotAllowed",
+      );
+      assert.equal(await balanceOf(provider, poolVault), poolBefore);
+    });
+
+    it("still accepts the same deposit sent directly", async () => {
+      const player = await newFundedWallet(provider, 2 * LAMPORTS_PER_SOL);
+      const poolBefore = await balanceOf(provider, poolVault);
+      await deposit(player, LAMPORTS_PER_SOL);
+      assert.equal(
+        await balanceOf(provider, poolVault),
+        poolBefore + LAMPORTS_PER_SOL,
+      );
+    });
+  });
+
   describe("set_paused", () => {
     it("rejects a pause attempt from anybody but the admin", async () => {
       const attacker = await newFundedWallet(provider, LAMPORTS_PER_SOL);
@@ -587,27 +652,86 @@ describe("casino_vault", () => {
   });
 
   describe("backend listener", () => {
+    it("ignores the DepositEvent left in the logs of a failed transaction", async () => {
+      // [deposit(1 SOL), transfer that cannot succeed]: the whole transaction
+      // reverts, yet the deposit's event is already in the logs. A listener
+      // that does not check `meta.err` would credit 1 SOL for a fee.
+      const attacker = await newFundedWallet(provider, 2 * LAMPORTS_PER_SOL);
+      const poolBefore = await balanceOf(provider, poolVault);
+
+      const depositIx = await program.methods
+        .deposit(new BN(LAMPORTS_PER_SOL))
+        .accountsPartial(depositAccounts(attacker.publicKey))
+        .instruction();
+      const failingIx = SystemProgram.transfer({
+        fromPubkey: attacker.publicKey,
+        toPubkey: provider.wallet.publicKey,
+        lamports: 5 * LAMPORTS_PER_SOL,
+      });
+
+      const tx = new Transaction().add(depositIx, failingIx);
+      const latest = await connection.getLatestBlockhash("confirmed");
+      tx.feePayer = attacker.publicKey;
+      tx.recentBlockhash = latest.blockhash;
+      tx.sign(attacker);
+      const signature = await connection.sendRawTransaction(tx.serialize(), {
+        skipPreflight: true,
+      });
+      await connection.confirmTransaction(
+        { signature, ...latest },
+        "confirmed",
+      );
+
+      const raw = await connection.getTransaction(signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      assert.isNotNull(raw!.meta!.err, "the transaction must have failed");
+      const parser = new anchor.EventParser(program.programId, program.coder);
+      assert.lengthOf(
+        [...parser.parseLogs(raw!.meta!.logMessages!)],
+        1,
+        "the raw logs do carry a DepositEvent",
+      );
+
+      const details = await getTxDetails(program, provider, signature);
+      assert.isNotNull(details.err);
+      assert.lengthOf(
+        details.events,
+        0,
+        "a failed transaction yields no events",
+      );
+      assert.equal(
+        await balanceOf(provider, poolVault),
+        poolBefore,
+        "no lamports moved",
+      );
+    });
+
     it("delivers DepositEvent over the websocket subscription", async () => {
       const player = await newFundedWallet(provider, 3 * LAMPORTS_PER_SOL);
       const amount = LAMPORTS_PER_SOL;
       const poolBefore = await balanceOf(provider, poolVault);
 
+      let listener: number | undefined;
       const received = new Promise<any>((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error("no DepositEvent received within 30s")),
-          30_000,
-        );
-        const listener = program.addEventListener(
-          "depositEvent",
-          (event: any) => {
-            if (!event.user.equals(player.publicKey)) return;
-            clearTimeout(timeout);
+        const timeout = setTimeout(() => {
+          if (listener !== undefined)
             void program.removeEventListener(listener);
-            resolve(event);
-          },
-        );
+          reject(new Error("no DepositEvent received within 30s"));
+        }, 30_000);
+        listener = program.addEventListener("depositEvent", (event: any) => {
+          if (!event.user.equals(player.publicKey)) return;
+          clearTimeout(timeout);
+          void program.removeEventListener(listener!);
+          resolve(event);
+        });
       });
 
+      // addEventListener opens its websocket subscription asynchronously. Give
+      // it time to become active, or a fast deposit can land before the
+      // subscription and the event is never delivered.
+      await new Promise((r) => setTimeout(r, 1_500));
       await deposit(player, amount);
 
       const event = await received;

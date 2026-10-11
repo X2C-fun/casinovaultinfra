@@ -58,6 +58,7 @@ async function main() {
   console.log("pool_vault: ", poolVault.toBase58(), `(bump ${vaultBump})`);
 
   const signature = await sendWithRetry(
+    provider,
     () =>
       program.methods
         .initialize()
@@ -67,11 +68,8 @@ async function main() {
           poolVault,
           systemProgram: SystemProgram.programId,
         })
-        .rpc({
-          commitment: "confirmed",
-          skipPreflight: false,
-          maxRetries: 5,
-        }),
+        .transaction(),
+    [],
     "initialize",
   );
 

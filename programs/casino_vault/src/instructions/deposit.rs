@@ -6,7 +6,7 @@ use crate::constants::{POOL_VAULT_SEED, VAULT_STATE_SEED};
 use crate::errors::VaultError;
 use crate::events::DepositEvent;
 use crate::state::VaultState;
-use crate::utils::{current_timestamp, transfer_into_vault};
+use crate::utils::{current_timestamp, require_top_level, transfer_into_vault};
 
 /// Accounts for [`process_deposit`].
 #[derive(Accounts)]
@@ -45,6 +45,7 @@ pub struct Deposit<'info> {
 /// The program does not track who owns what: the backend listener reads the
 /// event and credits its database.
 pub fn process_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+    require_top_level()?;
     require!(amount > 0, VaultError::InvalidAmount);
 
     // Reject a deposit that could not be represented, before moving anything.

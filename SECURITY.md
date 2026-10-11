@@ -39,8 +39,7 @@ touch funds you do not own.
 | **Upgrade authority** (`wallet.json` at deploy time) | Replaces the program code. | Total loss: new code can move every lamport. Move it to a multisig (e.g. Squads) or make the program immutable before mainnet. |
 | **User wallet** | Deposits; signs its own withdrawals. | Only that user's withdrawals are affected; payouts can go only to the signing user. |
 
-Keep the admin key and the upgrade authority separate. The public devnet demo
-uses one key for both; that is a demo shortcut, not a recommendation.
+Keep the admin key and the upgrade authority separate.
 
 ## Demo withdraw API
 

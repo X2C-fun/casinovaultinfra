@@ -1,0 +1,27 @@
+[package]
+name = "cpi_probe"
+version = "0.0.0"
+description = "TEST FIXTURE ONLY. Forwards casino_vault deposit/withdraw through a CPI so the test suite can prove the vault rejects them. Never deploy."
+edition = "2021"
+license = "MIT"
+publish = false
+rust-version = "1.84.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "cpi_probe"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "casino_vault/idl-build"]
+
+[dependencies]
+anchor-lang = "0.32.1"
+casino_vault = { path = "../casino_vault", features = ["cpi"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_os, values("solana"))'] }
