@@ -4,7 +4,7 @@
 
 Casino Vault v0.1 is a **devnet demo**. It has **not** been audited. Do not hold
 mainnet funds with it until it has been reviewed and the items under
-"Known limitations" in the README are addressed for your deployment.
+[Known limitations](docs/architecture.md#known-limitations) are addressed for your deployment.
 
 ## Reporting a vulnerability
 
