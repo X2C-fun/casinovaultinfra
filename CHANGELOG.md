@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- CI installs npm 11 before `npm ci`. Dependabot writes lockfiles with npm 11,
+  which npm 10 (Node 22's default) rejects, so frontend dependency PRs failed
+  CI with "Missing: utf-8-validate@5.0.10 from lock file".
+
 ### Added
 
 - README sections for a disclaimer (as-is, unaudited, operators are responsible
