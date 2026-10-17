@@ -65,6 +65,13 @@ jobs:
         if: steps.cli-cache.outputs.cache-hit != 'true'
         run: sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
 
+      # anchor-cli depends on hidapi, whose build script needs the libudev
+      # headers. GitHub-hosted Ubuntu runners do not ship them, and without them
+      # the install fails with exit code 101 ("Unable to find libudev").
+      - name: Install system packages for the Anchor CLI
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libudev-dev pkg-config
+
       - name: Install Anchor CLI
         if: steps.cli-cache.outputs.cache-hit != 'true'
         run: cargo install --git https://github.com/coral-xyz/anchor --tag "v${ANCHOR_VERSION}" anchor-cli --locked

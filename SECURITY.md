@@ -12,6 +12,10 @@ Please **do not** open a public issue for security problems.
 
 Report privately through GitHub: open the repository's **Security** tab and
 choose **Report a vulnerability** (GitHub private vulnerability reporting).
+If that option is not shown, open a public issue titled "Security contact
+request" with **no details**, and a maintainer will reply with a private
+channel.
+
 Include:
 
 - the affected component (on-chain program, scripts, or frontend);
@@ -51,9 +55,11 @@ vault when explicitly enabled are expected behaviour, not vulnerabilities.
 
 ## Known dependency advisories
 
-`npm audit --omit=dev` in `casinovault-frontend` reports advisories that have
-no non-breaking fix upstream. None is reachable from untrusted input in this
-app as shipped:
+`npm audit --omit=dev` in `casinovault-frontend` reports about 30 advisories
+(none critical) in the dependency chains below. Most have no non-breaking fix
+upstream; `image-size` has a patched 2.x release, but only by forcing React
+Native's `metro` tooling onto it, which the web app never runs. None is
+reachable from untrusted input in this app as shipped:
 
 | Path | Advisories | Why it is accepted |
 | ---- | ---------- | ------------------ |

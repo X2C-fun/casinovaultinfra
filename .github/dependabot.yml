@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /casinovault-frontend
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+# Cargo is deliberately excluded: Dependabot's Cargo rewrites Cargo.lock to
+# lockfile version 4, which the Solana platform-tools Cargo cannot read
+# (see "Troubleshooting" in the README). Update Rust dependencies by hand.
