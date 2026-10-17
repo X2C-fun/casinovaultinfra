@@ -6,11 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- CI: install `libudev-dev` before building the Anchor CLI. Its `hidapi`
+  dependency needs the headers, so the Anchor job had failed at "Install Anchor
+  CLI" on every run and the build, IDL drift check and `anchor test` never ran
+  in CI. The README lists the same system packages for Linux contributors.
+
+### Security
+
+- Demo `/api/withdraw` refuses to run when its RPC is mainnet-beta (checked by
+  genesis hash), whatever `VAULT_DEMO_UNSAFE_WITHDRAW` says.
+- SECURITY.md gives a fallback contact route and corrects the dependency
+  advisory wording.
+
+### Changed
+
+- Removed create-next-app leftovers (agent instruction files, unused SVGs,
+  default favicon); the frontend has its own icon.
+- Added issue and PR templates, CODEOWNERS and Dependabot (npm and Actions;
+  Cargo excluded because it would rewrite `Cargo.lock` to version 4).
+- Docs: neutral wording for the unmaintained v0.1.0 deployment, a step to
+  create the test player key, a `bs58` one-liner that uses a direct
+  dependency, and accurate `.gitignore` guidance.
+- Frontend package: version 0.1.1 and an MIT `license` field.
+
 ## [0.1.1] - 2026-10-09
 
 New program ID `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7`. The 0.1.0 program at
-`DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` was deployed by another team and is not
-upgraded; 0.1.1 is a fresh deployment, so no account migration or extension is
+`DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` is no longer maintained by this
+repository and is not upgraded; 0.1.1 is a fresh deployment, so no account migration or extension is
 needed. Deployed to devnet in slot 509121525 and initialized immediately with a
 separate admin key; deposit, withdraw, player withdraw and pause verified
 there. Account layout, PDA seeds, instruction arguments and existing error
@@ -114,9 +139,9 @@ codes are unchanged from 0.1.0.
 
 - Initial release: `casino_vault` Anchor program (`initialize`, `deposit`,
   `withdraw`, `set_paused`), TypeScript admin scripts, integration tests, and
-  the Next.js reference frontend. Deployed to devnet by another team as
-  `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`; this repository does not
-  control that deployment (see 0.1.1).
+  the Next.js reference frontend. Deployed to devnet as
+  `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`; that deployment is no longer
+  maintained (see 0.1.1).
 
 [Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.1.1...HEAD
 [0.1.1]: https://github.com/X2C-fun/casinovaultinfra/compare/a0da5b8...v0.1.1

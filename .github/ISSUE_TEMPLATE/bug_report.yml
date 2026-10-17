@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issues do not belong here.** If this could let someone move funds, bypass a check, or leak a key, report it privately instead (see SECURITY.md).
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - On-chain program (programs/casino_vault)
+        - CLI scripts (scripts/)
+        - Tests / CI
+        - Reference frontend (casinovault-frontend/)
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Commands run, cluster (localnet / devnet), and any transaction signatures.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Commit hash, `anchor --version`, `solana --version`, `node --version`.

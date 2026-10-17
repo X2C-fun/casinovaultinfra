@@ -15,9 +15,10 @@ backend database, which is driven by the events emitted here.
 | Deployed clusters | devnet (v0.1.1, slot 509121525)                |
 
 > **Status: not audited, not for mainnet funds.** v0.1.1 is a fresh deployment
-> under the program ID above. An earlier v0.1.0 build at
-> `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` was deployed by another team; this repository
-> neither controls nor upgrades it.
+> under the program ID above. An earlier v0.1.0 deployment at
+> `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` (upgrade authority
+> `5ddTS84UFxK8y2qELjvouw7xtcgBAPxk6JuM3FTyLfoa`) is no longer maintained by
+> this repository and lacks the v0.1.1 fixes; do not use it.
 >
 > The devnet deployment keeps the roles separate, as this README recommends:
 >
@@ -129,6 +130,14 @@ different keypairs — do not reuse the deployer as the admin in production.
 These steps take you from `git clone` to a live, initialized vault on devnet.
 
 ### Step 1 — Install the toolchain
+
+On Debian/Ubuntu, install the system packages the Solana and Anchor CLIs
+compile against first (the Anchor CLI build fails with "Unable to find
+libudev" without them):
+
+```bash
+sudo apt-get install -y build-essential pkg-config libudev-dev libssl-dev
+```
 
 ```bash
 # Rust
@@ -355,7 +364,7 @@ ADMIN_SECRET_KEY=[12,34,56,...]
 **Base58** (single string):
 
 ```bash
-node -e "const bs58=require('bs58');const k=require('./keys/admin.json');console.log((bs58.default||bs58).encode(Uint8Array.from(k)))"
+node -e "const {bs58}=require('@coral-xyz/anchor').utils.bytes;console.log(bs58.encode(Uint8Array.from(require('./keys/admin.json'))))"
 ```
 
 ```env
@@ -529,6 +538,14 @@ already initialized.
 ### `deposit` — fund the pool
 
 Accounts: `depositor` (signer), `vault_state`, `pool_vault`, `system_program`
+
+The examples below use a test player wallet. Create and fund one first (it
+lives under the git-ignored `keys/`):
+
+```bash
+solana-keygen new -o keys/player.json --no-bip39-passphrase
+solana airdrop 1 $(solana-keygen pubkey keys/player.json) --url https://api.devnet.solana.com
+```
 
 ```bash
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/player.json npm run deposit -- 0.25
@@ -741,7 +758,7 @@ that cluster — stays in the pool permanently.
 
 Events are emitted with `emit!`, i.e. into program logs. The runtime truncates
 logs at 10 KB per transaction. A plain vault instruction never comes close, but
-a composed transaction (many instructions, or another program CPI-ing in) can,
+a transaction with many instructions can (CPI calls are rejected since v0.1.1),
 and a log-only listener would then miss the event. Index by transaction and
 decode instruction data as a fallback.
 

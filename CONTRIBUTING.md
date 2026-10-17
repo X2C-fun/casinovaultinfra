@@ -7,9 +7,10 @@ reviewed with security first.
 
 - Security issues go through [SECURITY.md](SECURITY.md), not public issues.
 - One logical change per pull request. Explain *why* in the description.
-- Never commit keys or secrets: `wallet.json`, `keys/`, `*.json` keypairs, or
-  any `.env*` other than `.env.example`. The `.gitignore` covers these; do not
-  force-add them.
+- Never commit keys or secrets. The `.gitignore` covers `wallet.json`,
+  everything under `keys/`, `*-keypair.json`, and any `.env*` other than
+  `.env.example`. Keep every other keypair (for example a test player) under
+  `keys/`, and never force-add any of them.
 - Changes to the on-chain program need tests in `tests/casino_vault.ts`
   covering both the success path and the failure modes they introduce.
 

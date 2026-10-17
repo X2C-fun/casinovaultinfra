@@ -171,6 +171,28 @@ function parseLamports(value: unknown): bigint {
   return lamports;
 }
 
+/** Genesis hash of mainnet-beta. The demo route must never co-sign there. */
+const MAINNET_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+let clusterChecked = false;
+
+/**
+ * Refuses to run against mainnet-beta. The URL cannot be trusted to say which
+ * cluster it serves (a custom RPC host, a proxy), but the genesis hash can.
+ * Checked once per instance; a failed lookup is retried on the next request.
+ */
+async function assertNotMainnet(connection: Connection): Promise<void> {
+  if (clusterChecked) return;
+  const genesis = await connection.getGenesisHash();
+  if (genesis === MAINNET_GENESIS_HASH) {
+    console.error("withdraw: demo route refused: RPC is mainnet-beta");
+    throw new HttpError(
+      501,
+      "The demo withdraw route is disabled on mainnet. Implement a real backend (see 'Backend withdraw flow' in the README).",
+    );
+  }
+  clusterChecked = true;
+}
+
 let cachedRentReserve: number | null = null;
 
 async function rentReserve(connection: Connection): Promise<number> {
@@ -231,6 +253,7 @@ export async function POST(req: NextRequest) {
       throw new HttpError(400, "user must not be the vault admin");
     }
     const connection = new Connection(serverRpcUrl(), "confirmed");
+    await assertNotMainnet(connection);
     const program = new Program<CasinoVault>(VAULT_IDL, { connection });
     const [vaultState] = deriveVaultStatePda(PROGRAM_ID);
     const [poolVault] = derivePoolVaultPda(PROGRAM_ID);

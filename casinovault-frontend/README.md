@@ -88,6 +88,6 @@ need network access.
 ## Stack
 
 - Next.js 16 (App Router) + React 19 + Tailwind 4
-- `@solana/wallet-adapter-react` + `react-ui` + `wallets`
+- `@solana/wallet-adapter-react` + `react-ui` + `phantom` + `solflare`
 - `@coral-xyz/anchor` 0.32 + `@solana/web3.js`
 - Default program ID: `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7` (this repository's devnet deployment)
