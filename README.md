@@ -18,10 +18,7 @@ backend database, which is driven by the events emitted here.
 | Deployed clusters | devnet (v0.1.1, slot 509121525)                |
 
 > **Status: not audited, not for mainnet funds.** v0.1.1 is a fresh deployment
-> under the program ID above. An earlier v0.1.0 deployment at
-> `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` (upgrade authority
-> `5ddTS84UFxK8y2qELjvouw7xtcgBAPxk6JuM3FTyLfoa`) is no longer maintained by
-> this repository and lacks the v0.1.1 fixes; do not use it.
+> under the program ID above.
 >
 > The devnet deployment keeps the roles separate, as this README recommends:
 >
