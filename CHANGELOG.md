@@ -20,6 +20,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- README status note no longer lists the unmaintained v0.1.0 deployment; that
+  history stays in this changelog (see 0.1.1).
 - Documentation split: the README is now an overview with a quickstart, and
   the detail lives in `docs/` (architecture, deployment, backend integration,
   program reference, frontend, testing and troubleshooting).
