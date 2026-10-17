@@ -2,13 +2,16 @@
  * Integration tests for the pooled casino vault.
  *
  * They cover the happy path of every instruction plus the security properties
- * the program must guarantee: funds only leave the pool with the admin's
- * approval, they can only go to the signing user, the pool never drops below its
- * rent reserve, forged state accounts are rejected, and the pause switch stops
- * both directions.
+ * the program must guarantee: only the upgrade authority can initialize, set
+ * caps or rotate the admin; funds only leave the pool with the admin's
+ * approval, can only go to the signing user and respect the caps; the pool
+ * never drops below its rent reserve; forged state accounts are rejected; and
+ * the pause switch stops both directions.
  *
  * The state and pool PDAs are singletons, so the suite initializes the program
  * exactly once and requires a fresh validator (`anchor test` resets the ledger).
+ * `Anchor.toml` sets `[test] upgradeable = true`, which makes the provider
+ * wallet the program's upgrade authority.
  */
 
 import * as anchor from "@coral-xyz/anchor";
@@ -57,8 +60,11 @@ describe("casino_vault", () => {
   const probe = anchor.workspace.cpiProbe as Program<CpiProbe>;
   const connection = provider.connection;
 
-  /** Backend authority for the whole suite. */
-  const admin = Keypair.generate();
+  /** Upgrade authority: the provider wallet that deployed the program. */
+  const authority = provider.wallet.publicKey;
+
+  /** Backend authority. Replaced by the admin-rotation tests at the end. */
+  let admin = Keypair.generate();
 
   let vaultState: PublicKey;
   let poolVault: PublicKey;
@@ -66,8 +72,12 @@ describe("casino_vault", () => {
 
   /** Lamports permanently reserved in the pool to keep it rent exempt. */
   let rentReserve: number;
-  /** Rent paid for the `VaultState` account. */
-  let stateRent: number;
+
+  let nextRequestId = 1;
+  /** Fresh backend withdrawal ID, as a real backend would allocate. */
+  function requestId(): BN {
+    return new BN(nextRequestId++);
+  }
 
   /** Accounts shared by `deposit`. */
   function depositAccounts(depositor: PublicKey) {
@@ -103,11 +113,16 @@ describe("casino_vault", () => {
   }
 
   /** Releases `lamports` from the pool to `wallet`, with admin approval. */
-  async function withdraw(wallet: Keypair, lamports: number): Promise<string> {
+  async function withdraw(
+    wallet: Keypair,
+    lamports: number,
+    id: BN = requestId(),
+    approver: Keypair = admin,
+  ): Promise<string> {
     return program.methods
-      .withdraw(new BN(lamports))
-      .accountsPartial(withdrawAccounts(wallet.publicKey))
-      .signers([wallet, admin])
+      .withdraw(new BN(lamports), id)
+      .accountsPartial(withdrawAccounts(wallet.publicKey, approver.publicKey))
+      .signers([wallet, approver])
       .rpc({ commitment: "confirmed" });
   }
 
@@ -120,6 +135,18 @@ describe("casino_vault", () => {
       .rpc({ commitment: "confirmed" });
   }
 
+  /** Sets the withdrawal caps as the upgrade authority. */
+  async function setLimits(
+    perTx: number,
+    perWindow: number,
+    windowSeconds: number,
+  ): Promise<string> {
+    return program.methods
+      .setLimits(new BN(perTx), new BN(perWindow), windowSeconds)
+      .accountsPartial({ authority, vaultState })
+      .rpc({ commitment: "confirmed" });
+  }
+
   before(async () => {
     // The provider wallet funds every player and pays the fees.
     await airdrop(provider, provider.wallet.publicKey, 100 * LAMPORTS_PER_SOL);
@@ -128,18 +155,36 @@ describe("casino_vault", () => {
     [poolVault, poolVaultBump] = derivePoolVaultPda(program.programId);
 
     rentReserve = await connection.getMinimumBalanceForRentExemption(0);
-    stateRent =
-      await connection.getMinimumBalanceForRentExemption(VAULT_STATE_SIZE);
 
     await fund(provider, admin.publicKey, LAMPORTS_PER_SOL);
   });
 
   describe("initialize", () => {
+    it("rejects a signer that is not the upgrade authority", async () => {
+      const intruder = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+
+      await expectAnchorError(
+        program.methods
+          .initialize()
+          .accountsPartial({
+            authority: intruder.publicKey,
+            admin: intruder.publicKey,
+            vaultState,
+            poolVault,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([intruder])
+          .rpc(),
+        "NotUpgradeAuthority",
+      );
+    });
+
     it("requires the admin signature", async () => {
       await expectFailure(
         program.methods
           .initialize()
           .accountsPartial({
+            authority,
             admin: admin.publicKey,
             vaultState,
             poolVault,
@@ -156,6 +201,7 @@ describe("casino_vault", () => {
       const signature = await program.methods
         .initialize()
         .accountsPartial({
+          authority,
           admin: admin.publicKey,
           vaultState,
           poolVault,
@@ -168,6 +214,13 @@ describe("casino_vault", () => {
       assert.isTrue(state.admin.equals(admin.publicKey));
       assert.equal(state.vaultBump, poolVaultBump);
       assert.isFalse(state.paused);
+      assert.isNull(state.pendingAdmin);
+      assert.equal(state.maxWithdrawPerTx.toNumber(), 0);
+      assert.equal(state.maxWithdrawPerWindow.toNumber(), 0);
+      assert.equal(state.windowSeconds, 0);
+
+      const stateInfo = await connection.getAccountInfo(vaultState);
+      assert.equal(stateInfo!.data.length, VAULT_STATE_SIZE);
 
       // The pool must stay a data-less system account so the System Program can
       // move lamports out of it under its seed.
@@ -177,19 +230,18 @@ describe("casino_vault", () => {
       assert.equal(poolInfo!.data.length, 0);
       assert.isTrue(poolInfo!.owner.equals(SystemProgram.programId));
 
-      // The admin paid both rents; fees are on the provider wallet here.
-      assert.equal(
-        await balanceOf(provider, admin.publicKey),
-        adminBefore - stateRent - rentReserve,
-      );
+      // The upgrade authority pays all rent; the admin only signs.
+      assert.equal(await balanceOf(provider, admin.publicKey), adminBefore);
 
       const event = expectEvent(
         await getTxDetails(program, provider, signature),
         "vaultInitializedEvent",
       );
+      assert.isTrue(event.authority.equals(authority));
       assert.isTrue(event.admin.equals(admin.publicKey));
       assert.equal(event.vaultBump, poolVaultBump);
       assert.equal(event.rentReserve.toNumber(), rentReserve);
+      assert.equal(event.vaultBalance.toNumber(), rentReserve);
       assert.isAbove(event.timestamp.toNumber(), 0);
     });
 
@@ -200,6 +252,7 @@ describe("casino_vault", () => {
         program.methods
           .initialize()
           .accountsPartial({
+            authority,
             admin: other.publicKey,
             vaultState,
             poolVault,
@@ -213,13 +266,13 @@ describe("casino_vault", () => {
       const state = await program.account.vaultState.fetch(vaultState);
       assert.isTrue(
         state.admin.equals(admin.publicKey),
-        "the original admin must survive a hijack attempt",
+        "the original admin must survive a second initialize",
       );
     });
   });
 
   describe("deposit", () => {
-    it("moves SOL into the pool and emits DepositEvent", async () => {
+    it("moves SOL into the pool and emits DepositEvent via log and CPI", async () => {
       const player = await newFundedWallet(provider, 5 * LAMPORTS_PER_SOL);
       const amount = 2 * LAMPORTS_PER_SOL;
       const playerBefore = await balanceOf(provider, player.publicKey);
@@ -233,14 +286,14 @@ describe("casino_vault", () => {
       );
       assert.equal(await balanceOf(provider, poolVault), poolBefore + amount);
 
-      const event = expectEvent(
-        await getTxDetails(program, provider, signature),
-        "depositEvent",
-      );
-      assert.isTrue(event.user.equals(player.publicKey));
-      assert.equal(event.amount.toNumber(), amount);
-      assert.equal(event.vaultBalance.toNumber(), poolBefore + amount);
-      assert.isAbove(event.timestamp.toNumber(), 0);
+      const details = await getTxDetails(program, provider, signature);
+      for (const source of ["events", "cpiEvents"] as const) {
+        const event = expectEvent(details, "depositEvent", source);
+        assert.isTrue(event.user.equals(player.publicKey));
+        assert.equal(event.amount.toNumber(), amount);
+        assert.equal(event.vaultBalance.toNumber(), poolBefore + amount);
+        assert.isAbove(event.timestamp.toNumber(), 0);
+      }
     });
 
     it("pools deposits from unrelated wallets into one vault", async () => {
@@ -359,15 +412,16 @@ describe("casino_vault", () => {
       await deposit(house, bankroll);
     });
 
-    it("releases SOL to the user when both authorities sign", async () => {
+    it("releases SOL to the user and echoes request_id in both events", async () => {
       const player = await newFundedWallet(provider, 3 * LAMPORTS_PER_SOL);
       await deposit(player, 2 * LAMPORTS_PER_SOL);
 
       const amount = LAMPORTS_PER_SOL;
+      const id = new BN("18446744073709551615");
       const playerBefore = await balanceOf(provider, player.publicKey);
       const poolBefore = await balanceOf(provider, poolVault);
 
-      const signature = await withdraw(player, amount);
+      const signature = await withdraw(player, amount, id);
 
       assert.equal(
         await balanceOf(provider, player.publicKey),
@@ -375,14 +429,15 @@ describe("casino_vault", () => {
       );
       assert.equal(await balanceOf(provider, poolVault), poolBefore - amount);
 
-      const event = expectEvent(
-        await getTxDetails(program, provider, signature),
-        "withdrawEvent",
-      );
-      assert.isTrue(event.user.equals(player.publicKey));
-      assert.isTrue(event.admin.equals(admin.publicKey));
-      assert.equal(event.amount.toNumber(), amount);
-      assert.equal(event.vaultBalance.toNumber(), poolBefore - amount);
+      const details = await getTxDetails(program, provider, signature);
+      for (const source of ["events", "cpiEvents"] as const) {
+        const event = expectEvent(details, "withdrawEvent", source);
+        assert.isTrue(event.user.equals(player.publicKey));
+        assert.isTrue(event.admin.equals(admin.publicKey));
+        assert.isTrue(event.requestId.eq(id), "u64::MAX request_id survives");
+        assert.equal(event.amount.toNumber(), amount);
+        assert.equal(event.vaultBalance.toNumber(), poolBefore - amount);
+      }
     });
 
     it("pays a winner more than they ever deposited", async () => {
@@ -409,7 +464,7 @@ describe("casino_vault", () => {
 
       // The admin signs both roles: recipient and approver.
       await program.methods
-        .withdraw(new BN(amount))
+        .withdraw(new BN(amount), requestId())
         .accountsPartial(withdrawAccounts(admin.publicKey))
         .signers([admin])
         .rpc({ commitment: "confirmed" });
@@ -425,7 +480,7 @@ describe("casino_vault", () => {
 
       await expectFailure(
         program.methods
-          .withdraw(new BN(LAMPORTS_PER_SOL))
+          .withdraw(new BN(LAMPORTS_PER_SOL), requestId())
           .accountsPartial(withdrawAccounts(player.publicKey))
           .signers([player])
           .rpc(),
@@ -438,7 +493,7 @@ describe("casino_vault", () => {
 
       await expectFailure(
         program.methods
-          .withdraw(new BN(LAMPORTS_PER_SOL))
+          .withdraw(new BN(LAMPORTS_PER_SOL), requestId())
           .accountsPartial(withdrawAccounts(player.publicKey))
           .signers([admin])
           .rpc(),
@@ -451,13 +506,7 @@ describe("casino_vault", () => {
       const rogueAdmin = Keypair.generate();
 
       await expectAnchorError(
-        program.methods
-          .withdraw(new BN(LAMPORTS_PER_SOL))
-          .accountsPartial(
-            withdrawAccounts(player.publicKey, rogueAdmin.publicKey),
-          )
-          .signers([player, rogueAdmin])
-          .rpc(),
+        withdraw(player, LAMPORTS_PER_SOL, requestId(), rogueAdmin),
         "Unauthorized",
       );
     });
@@ -470,7 +519,7 @@ describe("casino_vault", () => {
       // either holds no program-owned data...
       await expectAnchorError(
         program.methods
-          .withdraw(new BN(LAMPORTS_PER_SOL))
+          .withdraw(new BN(LAMPORTS_PER_SOL), requestId())
           .accountsPartial({
             ...withdrawAccounts(attacker.publicKey, attacker.publicKey),
             vaultState: Keypair.generate().publicKey,
@@ -484,7 +533,7 @@ describe("casino_vault", () => {
       // deserialize as `VaultState`.
       await expectAnchorError(
         program.methods
-          .withdraw(new BN(LAMPORTS_PER_SOL))
+          .withdraw(new BN(LAMPORTS_PER_SOL), requestId())
           .accountsPartial({
             ...withdrawAccounts(attacker.publicKey, attacker.publicKey),
             vaultState: attacker.publicKey,
@@ -498,14 +547,7 @@ describe("casino_vault", () => {
     it("rejects a zero amount", async () => {
       const player = await newFundedWallet(provider, LAMPORTS_PER_SOL);
 
-      await expectAnchorError(
-        program.methods
-          .withdraw(new BN(0))
-          .accountsPartial(withdrawAccounts(player.publicKey))
-          .signers([player, admin])
-          .rpc(),
-        "InvalidAmount",
-      );
+      await expectAnchorError(withdraw(player, 0), "InvalidAmount");
     });
 
     it("rejects more than the pool's withdrawable balance", async () => {
@@ -513,11 +555,7 @@ describe("casino_vault", () => {
       const withdrawable = (await balanceOf(provider, poolVault)) - rentReserve;
 
       await expectAnchorError(
-        program.methods
-          .withdraw(new BN(withdrawable + 1))
-          .accountsPartial(withdrawAccounts(player.publicKey))
-          .signers([player, admin])
-          .rpc(),
+        withdraw(player, withdrawable + 1),
         "InsufficientFunds",
       );
     });
@@ -527,17 +565,19 @@ describe("casino_vault", () => {
       const poolLamports = await balanceOf(provider, poolVault);
 
       await expectAnchorError(
-        program.methods
-          .withdraw(new BN(poolLamports))
-          .accountsPartial(withdrawAccounts(player.publicKey))
-          .signers([player, admin])
-          .rpc(),
+        withdraw(player, poolLamports),
         "InsufficientFunds",
       );
     });
   });
 
   describe("cross-program invocation", () => {
+    /** The vault's emit_cpi! signer; the probe has to pass it through. */
+    const eventAuthority = PublicKey.findProgramAddressSync(
+      [Buffer.from("__event_authority")],
+      program.programId,
+    )[0];
+
     // Anchor's EventParser drops events emitted while another program is on
     // the call stack, so a CPI'd deposit would never be credited and a CPI'd
     // withdrawal would never settle its hold. The vault refuses both.
@@ -551,6 +591,7 @@ describe("casino_vault", () => {
           .forwardDeposit(new BN(LAMPORTS_PER_SOL))
           .accountsPartial({
             ...depositAccounts(player.publicKey),
+            eventAuthority,
             vaultProgram: program.programId,
           })
           .signers([player])
@@ -569,6 +610,7 @@ describe("casino_vault", () => {
           .forwardWithdraw(new BN(LAMPORTS_PER_SOL))
           .accountsPartial({
             ...withdrawAccounts(player.publicKey),
+            eventAuthority,
             vaultProgram: program.programId,
           })
           .signers([player, admin])
@@ -585,6 +627,79 @@ describe("casino_vault", () => {
       assert.equal(
         await balanceOf(provider, poolVault),
         poolBefore + LAMPORTS_PER_SOL,
+      );
+    });
+  });
+
+  describe("set_limits", () => {
+    afterEach(async () => {
+      await setLimits(0, 0, 0);
+    });
+
+    it("rejects the admin and any other non-authority signer", async () => {
+      for (const signer of [admin, Keypair.generate()]) {
+        await expectAnchorError(
+          program.methods
+            .setLimits(new BN(1), new BN(0), 0)
+            .accountsPartial({ authority: signer.publicKey, vaultState })
+            .signers([signer])
+            .rpc(),
+          "NotUpgradeAuthority",
+        );
+      }
+    });
+
+    it("rejects a window cap without a window length and vice versa", async () => {
+      await expectAnchorError(
+        setLimits(0, LAMPORTS_PER_SOL, 0),
+        "InvalidLimits",
+      );
+      await expectAnchorError(setLimits(0, 0, 60), "InvalidLimits");
+    });
+
+    it("enforces the per-transaction cap", async () => {
+      const signature = await setLimits(LAMPORTS_PER_SOL, 0, 0);
+      const event = expectEvent(
+        await getTxDetails(program, provider, signature),
+        "limitsUpdatedEvent",
+      );
+      assert.isTrue(event.authority.equals(authority));
+      assert.equal(event.maxWithdrawPerTx.toNumber(), LAMPORTS_PER_SOL);
+
+      const player = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+      await withdraw(player, LAMPORTS_PER_SOL);
+      await expectAnchorError(
+        withdraw(player, LAMPORTS_PER_SOL + 1),
+        "WithdrawLimitExceeded",
+      );
+    });
+
+    it("enforces the per-window cap across withdrawals", async () => {
+      await setLimits(0, 2 * LAMPORTS_PER_SOL, 3600);
+      const player = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+
+      await withdraw(player, 1.5 * LAMPORTS_PER_SOL);
+      await expectAnchorError(
+        withdraw(player, LAMPORTS_PER_SOL),
+        "WindowLimitExceeded",
+      );
+      await withdraw(player, 0.5 * LAMPORTS_PER_SOL);
+
+      const state = await program.account.vaultState.fetch(vaultState);
+      assert.equal(state.windowWithdrawn.toNumber(), 2 * LAMPORTS_PER_SOL);
+      assert.equal(state.windowSeconds, 3600);
+    });
+
+    it("applies to house withdrawals too", async () => {
+      await setLimits(LAMPORTS_PER_SOL, 0, 0);
+
+      await expectAnchorError(
+        program.methods
+          .withdraw(new BN(2 * LAMPORTS_PER_SOL), requestId())
+          .accountsPartial(withdrawAccounts(admin.publicKey))
+          .signers([admin])
+          .rpc(),
+        "WithdrawLimitExceeded",
       );
     });
   });
@@ -648,6 +763,134 @@ describe("casino_vault", () => {
       await deposit(player, LAMPORTS_PER_SOL);
       await withdraw(player, LAMPORTS_PER_SOL);
       assert.equal(await balanceOf(provider, poolVault), poolBefore);
+    });
+  });
+
+  describe("admin rotation", () => {
+    /** Proposes `next` (or cancels with `null`) as the upgrade authority. */
+    async function propose(next: PublicKey | null): Promise<string> {
+      return program.methods
+        .proposeAdmin(next)
+        .accountsPartial({ authority, vaultState })
+        .rpc({ commitment: "confirmed" });
+    }
+
+    /** Accepts the pending admin role as `signer`. */
+    async function accept(signer: Keypair): Promise<string> {
+      return program.methods
+        .acceptAdmin()
+        .accountsPartial({ newAdmin: signer.publicKey, vaultState })
+        .signers([signer])
+        .rpc({ commitment: "confirmed" });
+    }
+
+    it("rejects acceptance when nothing is pending", async () => {
+      await expectAnchorError(accept(Keypair.generate()), "NotPendingAdmin");
+    });
+
+    it("rejects proposals from the admin or any other non-authority", async () => {
+      for (const signer of [admin, Keypair.generate()]) {
+        await expectAnchorError(
+          program.methods
+            .proposeAdmin(signer.publicKey)
+            .accountsPartial({ authority: signer.publicKey, vaultState })
+            .signers([signer])
+            .rpc(),
+          "NotUpgradeAuthority",
+        );
+      }
+    });
+
+    it("rejects the default public key", async () => {
+      await expectAnchorError(propose(PublicKey.default), "InvalidAdmin");
+    });
+
+    it("keeps the current admin until the proposal is accepted, and can cancel", async () => {
+      const candidate = Keypair.generate();
+      const signature = await propose(candidate.publicKey);
+
+      const event = expectEvent(
+        await getTxDetails(program, provider, signature),
+        "adminProposedEvent",
+      );
+      assert.isTrue(event.authority.equals(authority));
+      assert.isTrue(event.currentAdmin.equals(admin.publicKey));
+      assert.isTrue(event.pendingAdmin.equals(candidate.publicKey));
+
+      let state = await program.account.vaultState.fetch(vaultState);
+      assert.isTrue(state.admin.equals(admin.publicKey));
+      assert.isTrue(state.pendingAdmin!.equals(candidate.publicKey));
+
+      // The current admin still approves withdrawals while a proposal is open.
+      const player = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+      await withdraw(player, LAMPORTS_PER_SOL / 10);
+
+      // Only the proposed key may accept.
+      await expectAnchorError(accept(Keypair.generate()), "NotPendingAdmin");
+
+      await propose(null);
+      state = await program.account.vaultState.fetch(vaultState);
+      assert.isNull(state.pendingAdmin);
+      await expectAnchorError(accept(candidate), "NotPendingAdmin");
+    });
+
+    it("rotates the admin; the old key loses withdraw and pause rights", async () => {
+      const oldAdmin = admin;
+      const newAdmin = Keypair.generate();
+      await fund(provider, newAdmin.publicKey, LAMPORTS_PER_SOL);
+
+      await propose(newAdmin.publicKey);
+      const signature = await accept(newAdmin);
+
+      const event = expectEvent(
+        await getTxDetails(program, provider, signature),
+        "adminChangedEvent",
+      );
+      assert.isTrue(event.previousAdmin.equals(oldAdmin.publicKey));
+      assert.isTrue(event.newAdmin.equals(newAdmin.publicKey));
+
+      const state = await program.account.vaultState.fetch(vaultState);
+      assert.isTrue(state.admin.equals(newAdmin.publicKey));
+      assert.isNull(state.pendingAdmin);
+
+      const player = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+      await expectAnchorError(
+        withdraw(player, LAMPORTS_PER_SOL / 10, requestId(), oldAdmin),
+        "Unauthorized",
+      );
+      await expectAnchorError(
+        program.methods
+          .setPaused(true)
+          .accountsPartial({ admin: oldAdmin.publicKey, vaultState })
+          .signers([oldAdmin])
+          .rpc(),
+        "Unauthorized",
+      );
+
+      admin = newAdmin;
+      await withdraw(player, LAMPORTS_PER_SOL / 10);
+    });
+
+    it("recovers from a leaked admin in a single transaction", async () => {
+      const replacement = Keypair.generate();
+
+      const tx = new Transaction().add(
+        await program.methods
+          .proposeAdmin(replacement.publicKey)
+          .accountsPartial({ authority, vaultState })
+          .instruction(),
+        await program.methods
+          .acceptAdmin()
+          .accountsPartial({ newAdmin: replacement.publicKey, vaultState })
+          .instruction(),
+      );
+      await provider.sendAndConfirm(tx, [replacement], {
+        commitment: "confirmed",
+      });
+
+      const state = await program.account.vaultState.fetch(vaultState);
+      assert.isTrue(state.admin.equals(replacement.publicKey));
+      admin = replacement;
     });
   });
 

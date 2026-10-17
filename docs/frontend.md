@@ -36,8 +36,8 @@ npm run dev        # http://localhost:3000
 | `VAULT_DEMO_TRUSTED_PROXY_HOPS` | server only | Proxies that append to `X-Forwarded-For` (Vercel `1`); `0` = one shared rate-limit bucket |
 
 Before asking the wallet to sign, the UI decodes the server's transaction and
-refuses anything other than a single `withdraw` of the requested amount to the
-connected wallet, with the connected wallet as fee payer
+refuses anything other than a single `withdraw` of the requested amount and
+`request_id` to the connected wallet, with the connected wallet as fee payer
 (`src/lib/withdrawTx.ts`). Integrators should keep that check.
 
 See `casinovault-frontend/README.md` for details.

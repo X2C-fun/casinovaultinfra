@@ -4,7 +4,7 @@
  * Usage:
  *   ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
  *   ANCHOR_WALLET=./keys/player.json \
- *   npx ts-node --compiler-options '{"module":"commonjs"}' scripts/deposit.ts 0.1
+ *   npm run deposit -- 0.1
  */
 
 import { BN } from "@coral-xyz/anchor";
@@ -13,10 +13,10 @@ import {
   derivePoolVaultPda,
   deriveVaultStatePda,
   lamportsToSol,
-  solToLamports,
   loadProgram,
   loadProvider,
   sendWithRetry,
+  solToLamports,
 } from "./common";
 
 async function main() {
@@ -26,13 +26,7 @@ async function main() {
     process.exit(1);
   }
 
-  let amount: bigint;
-  try {
-    amount = solToLamports(solArg);
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exit(1);
-  }
+  const amount = solToLamports(solArg);
 
   const provider = loadProvider();
   const program = loadProgram(provider);

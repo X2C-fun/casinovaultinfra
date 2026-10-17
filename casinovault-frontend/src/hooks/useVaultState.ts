@@ -12,6 +12,12 @@ export type VaultSnapshot = {
   admin: PublicKey | null;
   paused: boolean;
   vaultBump: number | null;
+  pendingAdmin: PublicKey | null;
+  /** Per-withdrawal cap in lamports; 0 means none. */
+  maxWithdrawPerTx: bigint;
+  /** Per-window cap in lamports; 0 means none. */
+  maxWithdrawPerWindow: bigint;
+  windowSeconds: number;
   poolLamports: number;
   rentReserve: number;
   withdrawableLamports: number;
@@ -27,6 +33,10 @@ const EMPTY: Omit<
   admin: null,
   paused: false,
   vaultBump: null,
+  pendingAdmin: null,
+  maxWithdrawPerTx: 0n,
+  maxWithdrawPerWindow: 0n,
+  windowSeconds: 0,
   poolLamports: 0,
   rentReserve: 0,
   withdrawableLamports: 0,
@@ -66,6 +76,10 @@ export function useVaultState(pollMs = 12_000) {
         admin: state.admin,
         paused: state.paused,
         vaultBump: state.vaultBump,
+        pendingAdmin: state.pendingAdmin,
+        maxWithdrawPerTx: BigInt(state.maxWithdrawPerTx.toString()),
+        maxWithdrawPerWindow: BigInt(state.maxWithdrawPerWindow.toString()),
+        windowSeconds: state.windowSeconds,
         poolLamports,
         rentReserve,
         withdrawableLamports,
