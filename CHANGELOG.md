@@ -6,32 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-
-- CI: install `libudev-dev` before building the Anchor CLI. Its `hidapi`
-  dependency needs the headers, so the Anchor job had failed at "Install Anchor
-  CLI" on every run and the build, IDL drift check and `anchor test` never ran
-  in CI. The README lists the same system packages for Linux contributors.
-
-### Security
-
-- Demo `/api/withdraw` refuses to run when its RPC is mainnet-beta (checked by
-  genesis hash), whatever `VAULT_DEMO_UNSAFE_WITHDRAW` says.
-- SECURITY.md gives a fallback contact route and corrects the dependency
-  advisory wording.
-
 ### Changed
 
-- Removed create-next-app leftovers (agent instruction files, unused SVGs,
-  default favicon); the frontend has its own icon.
-- Added issue and PR templates, CODEOWNERS and Dependabot (npm and Actions;
-  Cargo excluded because it would rewrite `Cargo.lock` to version 4).
-- Docs: neutral wording for the unmaintained v0.1.0 deployment, a step to
-  create the test player key, a `bs58` one-liner that uses a direct
-  dependency, and accurate `.gitignore` guidance.
-- Frontend package: version 0.1.1 and an MIT `license` field.
+- Dependabot groups patch and minor updates into one PR per package
+  directory each week and ignores major versions, plus minor versions of
+  `@coral-xyz/anchor` and `@solana/web3.js`, which must move together with
+  the program and Anchor CLI. GitHub Actions updates are grouped into one PR.
 
-## [0.1.1] - 2026-10-09
+## [0.1.1] - 2026-10-17
 
 New program ID `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7`. The 0.1.0 program at
 `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY` is no longer maintained by this
@@ -40,6 +22,10 @@ needed. Deployed to devnet in slot 509121525 and initialized immediately with a
 separate admin key; deposit, withdraw, player withdraw and pause verified
 there. Account layout, PDA seeds, instruction arguments and existing error
 codes are unchanged from 0.1.0.
+
+The program was deployed to devnet on 2026-10-09; the repository
+changes below (CI, docs, demo route, community files) landed with the
+`v0.1.1` tag on 2026-10-17.
 
 ### Program
 
@@ -53,6 +39,10 @@ codes are unchanged from 0.1.0.
 
 ### Security
 
+- Demo `/api/withdraw` refuses to run when its RPC is mainnet-beta (checked by
+  genesis hash), whatever `VAULT_DEMO_UNSAFE_WITHDRAW` says.
+- SECURITY.md gives a fallback contact route and corrects the dependency
+  advisory wording.
 - README listener rules: de-duplicate events by
   `(signature, instruction index, event index)`, never by contents; identical
   deposits in one slot produce identical events.
@@ -116,6 +106,14 @@ codes are unchanged from 0.1.0.
 
 ### Changed
 
+- Removed create-next-app leftovers (agent instruction files, unused SVGs,
+  default favicon); the frontend has its own icon.
+- Added issue and PR templates, CODEOWNERS and Dependabot (npm and Actions;
+  Cargo excluded because it would rewrite `Cargo.lock` to version 4).
+- Docs: neutral wording for the unmaintained v0.1.0 deployment, a step to
+  create the test player key, a `bs58` one-liner that uses a direct
+  dependency, and accurate `.gitignore` guidance.
+- Frontend package: version 0.1.1 and an MIT `license` field.
 - `npm run deploy:devnet` deploys only `casino_vault` (`-p casino_vault`).
 - README: a fresh clone must not `anchor deploy` to the existing devnet
   address; `avm` is installed from the `v0.32.1` tag with `--locked`.
@@ -131,6 +129,10 @@ codes are unchanged from 0.1.0.
 
 ### Fixed
 
+- CI: install `libudev-dev` before building the Anchor CLI. Its `hidapi`
+  dependency needs the headers, so the Anchor job had failed at "Install Anchor
+  CLI" on every run and the build, IDL drift check and `anchor test` never ran
+  in CI. The README lists the same system packages for Linux contributors.
 - ESLint `react-hooks/set-state-in-effect` error in `useVaultState`.
 
 ## [0.1.0] - 2026-10-04

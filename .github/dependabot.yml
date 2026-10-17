@@ -1,17 +1,70 @@
+# Dependabot keeps dependencies current without flooding the PR list:
+# one grouped PR per package directory per week for patch and minor updates,
+# one grouped PR for GitHub Actions. Every PR runs the full CI.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      root-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Major versions need a deliberate upgrade (e.g. chai 6 is ESM-only,
+      # TypeScript 7 and mocha 12 change tooling); review them by hand.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Must match the program and the Anchor CLI (0.32.x). For 0.x packages a
+      # "minor" bump is breaking, so upgrade together with the program.
+      - dependency-name: "@coral-xyz/anchor"
+        update-types: ["version-update:semver-minor"]
+      # Upgrade web3.js together with Anchor, not on its own.
+      - dependency-name: "@solana/web3.js"
+        update-types: ["version-update:semver-minor"]
+
   - package-ecosystem: npm
     directory: /casinovault-frontend
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Major versions need a deliberate upgrade (e.g. chai 6 is ESM-only,
+      # TypeScript 7 and mocha 12 change tooling); review them by hand.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Must match the program and the Anchor CLI (0.32.x). For 0.x packages a
+      # "minor" bump is breaking, so upgrade together with the program.
+      - dependency-name: "@coral-xyz/anchor"
+        update-types: ["version-update:semver-minor"]
+      # Upgrade web3.js together with Anchor, not on its own.
+      - dependency-name: "@solana/web3.js"
+        update-types: ["version-update:semver-minor"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: ci
+    groups:
+      # Actions are pinned to commit SHAs and fully exercised by CI, so major
+      # versions are allowed, but all bumps arrive as one PR.
+      github-actions:
+        patterns: ["*"]
+
 # Cargo is deliberately excluded: Dependabot's Cargo rewrites Cargo.lock to
 # lockfile version 4, which the Solana platform-tools Cargo cannot read
 # (see "Troubleshooting" in the README). Update Rust dependencies by hand.

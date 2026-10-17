@@ -1,5 +1,8 @@
 # Casino Vault Infra — Solana pooled custody program
 
+[![CI](https://github.com/X2C-fun/casinovaultinfra/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/X2C-fun/casinovaultinfra/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 An Anchor program that holds SOL for a casino backend in **one shared pool**. It
 is a custody layer only: it moves SOL in and out under strict authority checks
 and emits an event for every change. It knows nothing about balances, bets, wins,
@@ -52,6 +55,7 @@ backend database, which is driven by the events emitted here.
 14. [Troubleshooting](#troubleshooting)
 15. [Trust model](#trust-model)
 16. [Known limitations](#known-limitations)
+17. [Contributing, security and license](#contributing-security-and-license)
 
 ---
 
@@ -889,3 +893,14 @@ custody protocol should have and this program (v0.1) does not yet.
 | Single hot admin key, no on-chain limits | A backend compromise can drain the pool. | Optional per-transaction / per-epoch cap in `VaultState`. |
 | Events only in logs | Log truncation in large composed transactions can hide events. | `emit_cpi!`, or decode instruction data in the listener. |
 | Admin must be a keypair | `withdraw` must be a top-level instruction, so a multisig (e.g. Squads) or PDA admin, which signs through CPI, cannot approve withdrawals. `set_paused` still works from a multisig. | Keep the admin in an HSM/KMS or signer service; use a multisig for the upgrade authority. |
+
+---
+
+## Contributing, security and license
+
+- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). Everyone taking part
+  is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+- **Security:** do not open a public issue for vulnerabilities. Report them
+  privately as described in [SECURITY.md](SECURITY.md).
+- **Changes:** see [CHANGELOG.md](CHANGELOG.md).
+- **License:** [MIT](LICENSE).
