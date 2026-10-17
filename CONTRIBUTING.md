@@ -77,6 +77,9 @@ npx next build --webpack
 
 - Account layout changes are breaking for existing deployments. Call them out
   in the PR and in `CHANGELOG.md`, including the migration path.
+- Use **npm 11** when a change touches `package-lock.json` (`npm install -g npm@11`).
+  CI and Dependabot both use npm 11; a lockfile written by npm 10 still works,
+  but npm 10 cannot `npm ci` a lockfile written by npm 11.
 - Keep `Cargo.lock` at lockfile **version 3** (Solana platform-tools cannot
   read v4). Avoid a bare `cargo update` on a newer host; see
   [Testing and troubleshooting](docs/testing-and-troubleshooting.md).
