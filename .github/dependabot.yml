@@ -67,4 +67,4 @@ updates:
 
 # Cargo is deliberately excluded: Dependabot's Cargo rewrites Cargo.lock to
 # lockfile version 4, which the Solana platform-tools Cargo cannot read
-# (see "Troubleshooting" in the README). Update Rust dependencies by hand.
+# (see docs/testing-and-troubleshooting.md). Update Rust dependencies by hand.

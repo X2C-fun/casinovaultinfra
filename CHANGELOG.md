@@ -6,8 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- README sections for a disclaimer (as-is, unaudited, operators are responsible
+  for gambling and payments compliance) and support expectations (best-effort,
+  via GitHub issues), plus CI and license badges.
+
 ### Changed
 
+- Documentation split: the README is now an overview with a quickstart, and
+  the detail lives in `docs/` (architecture, deployment, backend integration,
+  program reference, frontend, testing and troubleshooting).
+- Known limitations: the "Planned change" column is now "Possible future
+  change"; these are options, not commitments.
 - Dependabot groups patch and minor updates into one PR per package
   directory each week and ignores major versions, plus minor versions of
   `@coral-xyz/anchor` and `@solana/web3.js`, which must move together with

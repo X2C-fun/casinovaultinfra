@@ -10,7 +10,7 @@
  *
  *  A real backend must authenticate the user and place a hold on their
  *  off-chain balance BEFORE co-signing (see "Backend withdraw flow" in the
- *  repository README) — otherwise one balance can be withdrawn many times.
+ *  docs/backend-integration.md) — otherwise one balance can be withdrawn many times.
  * ============================================================================
  */
 
@@ -187,7 +187,7 @@ async function assertNotMainnet(connection: Connection): Promise<void> {
     console.error("withdraw: demo route refused: RPC is mainnet-beta");
     throw new HttpError(
       501,
-      "The demo withdraw route is disabled on mainnet. Implement a real backend (see 'Backend withdraw flow' in the README).",
+      "The demo withdraw route is disabled on mainnet. Implement a real backend (see 'Backend withdraw flow' in docs/backend-integration.md).",
     );
   }
   clusterChecked = true;
@@ -215,7 +215,7 @@ export async function POST(req: NextRequest) {
         error:
           "Withdrawals are disabled. This reference route has no user balances. " +
           "Implement authentication and an off-chain balance hold before co-signing " +
-          "(see 'Backend withdraw flow' in the README), or set VAULT_DEMO_UNSAFE_WITHDRAW=true " +
+          "(see 'Backend withdraw flow' in docs/backend-integration.md), or set VAULT_DEMO_UNSAFE_WITHDRAW=true " +
           "for a devnet demo only.",
       },
       { status: 501 },

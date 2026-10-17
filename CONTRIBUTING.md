@@ -78,8 +78,8 @@ npx next build --webpack
 - Account layout changes are breaking for existing deployments. Call them out
   in the PR and in `CHANGELOG.md`, including the migration path.
 - Keep `Cargo.lock` at lockfile **version 3** (Solana platform-tools cannot
-  read v4). Avoid a bare `cargo update` on a newer host; see Troubleshooting
-  in the README.
+  read v4). Avoid a bare `cargo update` on a newer host; see
+  [Testing and troubleshooting](docs/testing-and-troubleshooting.md).
 
 ## Commit messages
 
