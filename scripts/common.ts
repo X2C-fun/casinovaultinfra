@@ -2,6 +2,7 @@
  * Shared PDA helpers and Anchor provider wiring for the casino vault scripts.
  */
 
+import * as fs from "fs";
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import {
@@ -14,7 +15,11 @@ import {
 } from "@solana/web3.js";
 import { CasinoVault } from "../target/types/casino_vault";
 
-export const VAULT_STATE_SEED = Buffer.from("vault_state");
+export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+);
+
+export const VAULT_STATE_SEED = Buffer.from("vault_state_v2");
 export const POOL_VAULT_SEED = Buffer.from("pool_vault");
 
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
@@ -27,6 +32,63 @@ export function deriveVaultStatePda(programId: PublicKey): [PublicKey, number] {
 /** Derives the singleton pool vault PDA. */
 export function derivePoolVaultPda(programId: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([POOL_VAULT_SEED], programId);
+}
+
+/** Derives the program data account that records the upgrade authority. */
+export function deriveProgramDataAddress(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+  )[0];
+}
+
+/**
+ * Reads the program's upgrade authority, or `null` if the program is
+ * immutable. Layout of `UpgradeableLoaderState::ProgramData`: u32 variant tag
+ * (3), u64 slot, then `Option<Pubkey>`.
+ */
+export async function fetchUpgradeAuthority(
+  connection: Connection,
+  programId: PublicKey,
+): Promise<PublicKey | null> {
+  const info = await connection.getAccountInfo(
+    deriveProgramDataAddress(programId),
+  );
+  if (!info || !info.owner.equals(BPF_LOADER_UPGRADEABLE_PROGRAM_ID)) {
+    throw new Error(
+      `program ${programId.toBase58()} is not deployed with the upgradeable loader`,
+    );
+  }
+  if (info.data.readUInt32LE(0) !== 3) {
+    throw new Error("unexpected program data account layout");
+  }
+  return info.data[12] === 1 ? new PublicKey(info.data.subarray(13, 45)) : null;
+}
+
+/** Loads a keypair from a Solana CLI JSON file (64-number array). */
+export function loadKeypair(path: string): Keypair {
+  let secret: unknown;
+  try {
+    secret = JSON.parse(fs.readFileSync(path, "utf8"));
+  } catch (err) {
+    throw new Error(`cannot read keypair ${path}: ${(err as Error).message}`);
+  }
+  if (!Array.isArray(secret) || secret.length !== 64) {
+    throw new Error(
+      `${path} is not a Solana keypair (expected a JSON array of 64 numbers)`,
+    );
+  }
+  return Keypair.fromSecretKey(Uint8Array.from(secret as number[]));
+}
+
+/** Parses a non-negative integer that must fit in a u64. */
+export function parseU64(input: string, label: string): bigint {
+  if (!/^\d+$/.test(input.trim())) {
+    throw new Error(`${label} must be a non-negative integer, got "${input}"`);
+  }
+  const value = BigInt(input.trim());
+  if (value > U64_MAX) throw new Error(`${label} exceeds u64`);
+  return value;
 }
 
 /**

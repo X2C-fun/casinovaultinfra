@@ -4,7 +4,7 @@
  * Usage:
  *   ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
  *   ANCHOR_WALLET=./keys/admin.json \
- *   npx ts-node --compiler-options '{"module":"commonjs"}' scripts/set_paused.ts true
+ *   npm run set-paused -- true
  */
 
 import {

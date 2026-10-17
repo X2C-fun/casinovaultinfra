@@ -8,11 +8,64 @@ export type CasinoVault = {
   "address": "EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7",
   "metadata": {
     "name": "casinoVault",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "spec": "0.1.0",
     "description": "Pooled SOL custody program: holds player funds for a casino backend, with admin-approved withdrawals."
   },
   "instructions": [
+    {
+      "name": "acceptAdmin",
+      "docs": [
+        "Completes an admin transfer. Signed by the pending admin."
+      ],
+      "discriminator": [
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "newAdmin",
+          "docs": [
+            "The pending admin, proving it controls the proposed key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
     {
       "name": "deposit",
       "docs": [
@@ -62,7 +115,10 @@ export type CasinoVault = {
                   116,
                   97,
                   116,
-                  101
+                  101,
+                  95,
+                  118,
+                  50
                 ]
               }
             ]
@@ -98,6 +154,38 @@ export type CasinoVault = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -110,8 +198,9 @@ export type CasinoVault = {
     {
       "name": "initialize",
       "docs": [
-        "Creates the singleton vault state and pool vault, registering the signing",
-        "admin as the withdrawal authority. Runs exactly once per deployment."
+        "Creates the singleton vault state, registering the signing admin as the",
+        "withdrawal authority. Only the upgrade authority may call it, and only",
+        "once per deployment."
       ],
       "discriminator": [
         175,
@@ -125,19 +214,115 @@ export type CasinoVault = {
       ],
       "accounts": [
         {
-          "name": "admin",
+          "name": "authority",
           "docs": [
-            "Backend authority being registered. It signs, so nobody can register an",
-            "admin key they do not control, and it pays the rent for both PDAs."
+            "The program's upgrade authority. Only this key can initialize, so a",
+            "third party watching the deploy cannot front-run `initialize` and",
+            "become admin. Pays the rent for the state account and any pool vault",
+            "shortfall."
           ],
           "writable": true,
           "signer": true
         },
         {
+          "name": "admin",
+          "docs": [
+            "Backend authority being registered. It must sign, so nobody can",
+            "register an admin key they do not control. May be the same key as",
+            "`authority`, though keeping them separate is recommended."
+          ],
+          "signer": true
+        },
+        {
+          "name": "programData",
+          "docs": [
+            "This program's program data account, which records the upgrade",
+            "authority. The seed check ties it to this program ID."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  200,
+                  245,
+                  16,
+                  232,
+                  125,
+                  198,
+                  109,
+                  75,
+                  172,
+                  221,
+                  110,
+                  208,
+                  168,
+                  104,
+                  41,
+                  96,
+                  3,
+                  155,
+                  239,
+                  99,
+                  172,
+                  254,
+                  202,
+                  162,
+                  188,
+                  163,
+                  16,
+                  7,
+                  149,
+                  36,
+                  136,
+                  80
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
           "name": "vaultState",
           "docs": [
-            "Singleton state PDA, `[\"vault_state\"]`. `init` makes this instruction",
-            "run exactly once for the lifetime of the program."
+            "Singleton state PDA, `[\"vault_state_v2\"]`. `init` makes this",
+            "instruction run exactly once for the lifetime of the program."
           ],
           "writable": true,
           "pda": {
@@ -155,7 +340,10 @@ export type CasinoVault = {
                   116,
                   97,
                   116,
-                  101
+                  101,
+                  95,
+                  118,
+                  50
                 ]
               }
             ]
@@ -195,6 +383,300 @@ export type CasinoVault = {
         }
       ],
       "args": []
+    },
+    {
+      "name": "proposeAdmin",
+      "docs": [
+        "Proposes a new admin (`None` cancels). Upgrade authority only."
+      ],
+      "discriminator": [
+        121,
+        214,
+        199,
+        212,
+        87,
+        39,
+        117,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The program's upgrade authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "programData",
+          "docs": [
+            "This program's program data account, proving `authority`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  200,
+                  245,
+                  16,
+                  232,
+                  125,
+                  198,
+                  109,
+                  75,
+                  172,
+                  221,
+                  110,
+                  208,
+                  168,
+                  104,
+                  41,
+                  96,
+                  3,
+                  155,
+                  239,
+                  99,
+                  172,
+                  254,
+                  202,
+                  162,
+                  188,
+                  163,
+                  16,
+                  7,
+                  149,
+                  36,
+                  136,
+                  80
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "newAdmin",
+          "type": {
+            "option": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "setLimits",
+      "docs": [
+        "Sets the withdrawal caps; `0` disables a cap. Upgrade authority only."
+      ],
+      "discriminator": [
+        207,
+        50,
+        250,
+        67,
+        211,
+        33,
+        70,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The program's upgrade authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "programData",
+          "docs": [
+            "This program's program data account, proving `authority`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  200,
+                  245,
+                  16,
+                  232,
+                  125,
+                  198,
+                  109,
+                  75,
+                  172,
+                  221,
+                  110,
+                  208,
+                  168,
+                  104,
+                  41,
+                  96,
+                  3,
+                  155,
+                  239,
+                  99,
+                  172,
+                  254,
+                  202,
+                  162,
+                  188,
+                  163,
+                  16,
+                  7,
+                  149,
+                  36,
+                  136,
+                  80
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "maxWithdrawPerTx",
+          "type": "u64"
+        },
+        {
+          "name": "maxWithdrawPerWindow",
+          "type": "u64"
+        },
+        {
+          "name": "windowSeconds",
+          "type": "u32"
+        }
+      ]
     },
     {
       "name": "setPaused",
@@ -243,7 +725,10 @@ export type CasinoVault = {
                   116,
                   97,
                   116,
-                  101
+                  101,
+                  95,
+                  118,
+                  50
                 ]
               }
             ]
@@ -261,7 +746,8 @@ export type CasinoVault = {
       "name": "withdraw",
       "docs": [
         "Releases `amount` lamports from the pool vault to the signing user.",
-        "Requires the admin's signature."
+        "Requires the admin's signature. `request_id` is echoed in",
+        "`WithdrawEvent`."
       ],
       "discriminator": [
         183,
@@ -301,8 +787,10 @@ export type CasinoVault = {
         {
           "name": "vaultState",
           "docs": [
-            "Singleton state PDA. Pins the admin and enforces the pause switch."
+            "Singleton state PDA. Pins the admin, enforces the pause switch, and",
+            "tracks the withdrawal window (hence writable)."
           ],
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -318,7 +806,10 @@ export type CasinoVault = {
                   116,
                   97,
                   116,
-                  101
+                  101,
+                  95,
+                  118,
+                  50
                 ]
               }
             ]
@@ -354,11 +845,47 @@ export type CasinoVault = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
         {
           "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "requestId",
           "type": "u64"
         }
       ]
@@ -381,6 +908,32 @@ export type CasinoVault = {
   ],
   "events": [
     {
+      "name": "adminChangedEvent",
+      "discriminator": [
+        172,
+        190,
+        41,
+        86,
+        23,
+        187,
+        232,
+        84
+      ]
+    },
+    {
+      "name": "adminProposedEvent",
+      "discriminator": [
+        212,
+        163,
+        91,
+        28,
+        223,
+        95,
+        2,
+        102
+      ]
+    },
+    {
       "name": "depositEvent",
       "discriminator": [
         120,
@@ -391,6 +944,19 @@ export type CasinoVault = {
         142,
         107,
         144
+      ]
+    },
+    {
+      "name": "limitsUpdatedEvent",
+      "discriminator": [
+        244,
+        137,
+        204,
+        15,
+        213,
+        180,
+        183,
+        234
       ]
     },
     {
@@ -468,9 +1034,112 @@ export type CasinoVault = {
       "code": 6006,
       "name": "cpiNotAllowed",
       "msg": "Deposits and withdrawals must be top-level instructions, not CPI"
+    },
+    {
+      "code": 6007,
+      "name": "notUpgradeAuthority",
+      "msg": "Unauthorized: signer is not the program upgrade authority"
+    },
+    {
+      "code": 6008,
+      "name": "notPendingAdmin",
+      "msg": "Signer is not the pending admin"
+    },
+    {
+      "code": 6009,
+      "name": "invalidAdmin",
+      "msg": "Invalid admin public key"
+    },
+    {
+      "code": 6010,
+      "name": "invalidLimits",
+      "msg": "Invalid withdrawal limits"
+    },
+    {
+      "code": 6011,
+      "name": "withdrawLimitExceeded",
+      "msg": "Withdrawal exceeds the per-transaction limit"
+    },
+    {
+      "code": 6012,
+      "name": "windowLimitExceeded",
+      "msg": "Withdrawal exceeds the limit for the current window"
     }
   ],
   "types": [
+    {
+      "name": "adminChangedEvent",
+      "docs": [
+        "Emitted when the pending admin accepts and becomes the admin."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "previousAdmin",
+            "docs": [
+              "Admin that was replaced."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "newAdmin",
+            "docs": [
+              "Admin now in force."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "adminProposedEvent",
+      "docs": [
+        "Emitted when the upgrade authority proposes (or cancels) an admin change."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Upgrade authority that made the proposal."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "currentAdmin",
+            "docs": [
+              "Admin in force when the proposal was made."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pendingAdmin",
+            "docs": [
+              "Proposed admin; `None` cancels a pending proposal."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "depositEvent",
       "docs": [
@@ -504,6 +1173,52 @@ export type CasinoVault = {
             "name": "timestamp",
             "docs": [
               "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "limitsUpdatedEvent",
+      "docs": [
+        "Emitted when the upgrade authority changes the withdrawal caps."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Upgrade authority that made the change."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "maxWithdrawPerTx",
+            "docs": [
+              "New per-transaction cap in lamports (`0` = none)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "maxWithdrawPerWindow",
+            "docs": [
+              "New per-window cap in lamports (`0` = none)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "windowSeconds",
+            "docs": [
+              "New window length in seconds."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot; the new window starts here."
             ],
             "type": "i64"
           }
@@ -546,11 +1261,18 @@ export type CasinoVault = {
     {
       "name": "vaultInitializedEvent",
       "docs": [
-        "Emitted once, when the vault state and pool vault are created."
+        "Emitted once, when the vault state is created."
       ],
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Upgrade authority that ran `initialize`."
+            ],
+            "type": "pubkey"
+          },
           {
             "name": "admin",
             "docs": [
@@ -574,6 +1296,14 @@ export type CasinoVault = {
             "type": "u64"
           },
           {
+            "name": "vaultBalance",
+            "docs": [
+              "Pool vault lamports after initialization. Non-zero beyond the reserve",
+              "when the pool already held funds (e.g. after upgrading from v0.1)."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "timestamp",
             "docs": [
               "Unix timestamp of the enclosing slot."
@@ -586,7 +1316,8 @@ export type CasinoVault = {
     {
       "name": "vaultState",
       "docs": [
-        "Global program configuration, stored at the singleton PDA `[\"vault_state\"]`.",
+        "Global program configuration, stored at the singleton PDA",
+        "`[\"vault_state_v2\"]`.",
         "",
         "There is no per-user state and no balance field. Every lamport sits in one",
         "shared pool vault, and who owns how much of it is the backend's business."
@@ -618,6 +1349,66 @@ export type CasinoVault = {
               "rejected."
             ],
             "type": "bool"
+          },
+          {
+            "name": "pendingAdmin",
+            "docs": [
+              "Admin proposed by the upgrade authority, waiting to sign",
+              "`accept_admin`. `None` when no transfer is in progress."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "maxWithdrawPerTx",
+            "docs": [
+              "Largest single withdrawal in lamports. `0` disables the cap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "maxWithdrawPerWindow",
+            "docs": [
+              "Largest total withdrawn within one window, in lamports. `0` disables",
+              "the cap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "windowSeconds",
+            "docs": [
+              "Window length in seconds. `0` exactly when `max_withdraw_per_window`",
+              "is `0`."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "windowStart",
+            "docs": [
+              "Unix timestamp at which the current window started."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "windowWithdrawn",
+            "docs": [
+              "Lamports withdrawn since `window_start`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Zeroed space for future fields, so they can be added without a",
+              "reallocation."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
           }
         ]
       }
@@ -643,6 +1434,14 @@ export type CasinoVault = {
               "Admin authority that approved the withdrawal."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "requestId",
+            "docs": [
+              "Backend withdrawal ID passed to `withdraw`, so the listener can settle",
+              "the matching hold without guessing by amount."
+            ],
+            "type": "u64"
           },
           {
             "name": "amount",

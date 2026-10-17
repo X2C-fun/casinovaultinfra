@@ -25,6 +25,8 @@ pub mod cpi_probe {
                     vault_state: ctx.accounts.vault_state.to_account_info(),
                     pool_vault: ctx.accounts.pool_vault.to_account_info(),
                     system_program: ctx.accounts.system_program.to_account_info(),
+                    event_authority: ctx.accounts.event_authority.to_account_info(),
+                    program: ctx.accounts.vault_program.to_account_info(),
                 },
             ),
             amount,
@@ -41,9 +43,12 @@ pub mod cpi_probe {
                     vault_state: ctx.accounts.vault_state.to_account_info(),
                     pool_vault: ctx.accounts.pool_vault.to_account_info(),
                     system_program: ctx.accounts.system_program.to_account_info(),
+                    event_authority: ctx.accounts.event_authority.to_account_info(),
+                    program: ctx.accounts.vault_program.to_account_info(),
                 },
             ),
             amount,
+            0, // request_id
         )
     }
 }
@@ -58,6 +63,8 @@ pub struct ForwardDeposit<'info> {
     #[account(mut)]
     pub pool_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    /// CHECK: casino_vault's event authority PDA, validated by casino_vault.
+    pub event_authority: UncheckedAccount<'info>,
     pub vault_program: Program<'info, CasinoVault>,
 }
 
@@ -66,11 +73,15 @@ pub struct ForwardWithdraw<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
     pub admin: Signer<'info>,
-    /// CHECK: validated by casino_vault.
+    /// CHECK: validated by casino_vault. Writable since v0.2: `withdraw`
+    /// records the withdrawal window in it.
+    #[account(mut)]
     pub vault_state: UncheckedAccount<'info>,
     /// CHECK: validated by casino_vault.
     #[account(mut)]
     pub pool_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
+    /// CHECK: casino_vault's event authority PDA, validated by casino_vault.
+    pub event_authority: UncheckedAccount<'info>,
     pub vault_program: Program<'info, CasinoVault>,
 }
