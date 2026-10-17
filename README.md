@@ -17,8 +17,10 @@ backend database, which is driven by the events emitted here.
 | Rust (SBF)        | `1.84.0`, edition 2021                         |
 | Deployed clusters | devnet (v0.1.1, slot 509121525)                |
 
-> **Status: not audited, not for mainnet funds.** v0.1.1 is a fresh deployment
-> under the program ID above.
+> **Status: not audited, not for mainnet funds.** The devnet program is still
+> v0.1.1. This branch's code is v0.2, which needs the in-place upgrade in
+> [Deployment](docs/deployment.md#upgrading-from-v01x) before the scripts and
+> frontend can talk to it.
 >
 > The devnet deployment keeps the roles separate, as this README recommends:
 >

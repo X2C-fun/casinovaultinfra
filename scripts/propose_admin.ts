@@ -34,6 +34,17 @@ async function main() {
       console.error(`"${arg}" is not a valid public key.`);
       process.exit(1);
     }
+    // A PDA (off-curve key, e.g. a multisig vault) could accept through CPI,
+    // but could never co-sign withdraw, which must be a top-level instruction.
+    if (!PublicKey.isOnCurve(newAdmin.toBytes())) {
+      console.error(
+        `${arg} is not a keypair address (it is off-curve, e.g. a PDA or multisig vault).`,
+      );
+      console.error(
+        "The admin must sign withdraw directly; see Known limitations in docs/architecture.md.",
+      );
+      process.exit(1);
+    }
   }
 
   const provider = loadProvider();

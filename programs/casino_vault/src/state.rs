@@ -65,8 +65,9 @@ impl VaultState {
     ///
     /// Windows are tumbling: the first withdrawal at or after
     /// `window_start + window_seconds` starts a new window at `now`. A clock
-    /// reading earlier than `window_start` also starts a new window, so a
-    /// misconfigured start can never freeze withdrawals.
+    /// reading earlier than `window_start` is treated as inside the current
+    /// window: granting a fresh allowance on a clock regression would let
+    /// withdrawals exceed the cap.
     pub fn record_withdrawal(&mut self, amount: u64, now: i64) -> Result<()> {
         if self.max_withdraw_per_tx > 0 {
             require!(
@@ -80,7 +81,7 @@ impl VaultState {
                 .window_start
                 .checked_add(i64::from(self.window_seconds))
                 .ok_or(VaultError::MathOverflow)?;
-            if now >= window_end || now < self.window_start {
+            if now >= window_end {
                 self.window_start = now;
                 self.window_withdrawn = 0;
             }
@@ -99,7 +100,14 @@ impl VaultState {
         Ok(())
     }
 
-    /// Validates and applies new caps, restarting the window at `now`.
+    /// Validates and applies new caps.
+    ///
+    /// When a window cap was already active, the current window and what has
+    /// been withdrawn in it are kept, so tightening the cap during an incident
+    /// takes effect against withdrawals already made instead of granting a
+    /// fresh allowance. A window starts at `now` only when a window cap is
+    /// switched on from none, and the counters are cleared when it is switched
+    /// off.
     pub fn set_limits(
         &mut self,
         max_withdraw_per_tx: u64,
@@ -112,11 +120,15 @@ impl VaultState {
             VaultError::InvalidLimits
         );
 
+        let window_was_active = self.max_withdraw_per_window > 0;
+
         self.max_withdraw_per_tx = max_withdraw_per_tx;
         self.max_withdraw_per_window = max_withdraw_per_window;
         self.window_seconds = window_seconds;
-        self.window_start = now;
-        self.window_withdrawn = 0;
+        if max_withdraw_per_window == 0 || !window_was_active {
+            self.window_start = now;
+            self.window_withdrawn = 0;
+        }
         Ok(())
     }
 }
@@ -214,13 +226,17 @@ mod tests {
     }
 
     #[test]
-    fn clock_before_window_start_opens_a_new_window() {
+    fn clock_before_window_start_stays_in_the_current_window() {
         let mut s = state();
         s.set_limits(0, 1_000, 60, 500).unwrap();
         s.window_withdrawn = 1_000;
-        s.record_withdrawal(10, 400).unwrap();
-        assert_eq!(s.window_start, 400);
-        assert_eq!(s.window_withdrawn, 10);
+        let err = s.record_withdrawal(10, 400).unwrap_err();
+        assert_eq!(code(err), code(VaultError::WindowLimitExceeded.into()));
+        assert_eq!(
+            s.window_start, 500,
+            "a clock regression must not reopen the window"
+        );
+        assert_eq!(s.window_withdrawn, 1_000);
     }
 
     #[test]
@@ -246,12 +262,42 @@ mod tests {
     }
 
     #[test]
-    fn set_limits_restarts_the_window() {
+    fn tightening_mid_window_keeps_what_was_withdrawn() {
         let mut s = state();
         s.set_limits(0, 1_000, 60, 0).unwrap();
         s.record_withdrawal(900, 10).unwrap();
+
+        // Incident response: tighten the window cap. The 900 already taken
+        // still counts, so only 50 more fits under the new 950 cap.
+        s.set_limits(0, 950, 60, 20).unwrap();
+        assert_eq!(s.window_start, 0);
+        assert_eq!(s.window_withdrawn, 900);
+        let err = s.record_withdrawal(100, 21).unwrap_err();
+        assert_eq!(code(err), code(VaultError::WindowLimitExceeded.into()));
+        s.record_withdrawal(50, 22).unwrap();
+
+        // Re-applying the same limits does not hand out a new allowance either.
+        s.set_limits(0, 950, 60, 23).unwrap();
+        let err = s.record_withdrawal(1, 24).unwrap_err();
+        assert_eq!(code(err), code(VaultError::WindowLimitExceeded.into()));
+    }
+
+    #[test]
+    fn enabling_a_window_cap_starts_a_fresh_window() {
+        let mut s = state();
+        s.set_limits(0, 0, 0, 0).unwrap();
         s.set_limits(0, 1_000, 60, 20).unwrap();
         assert_eq!(s.window_start, 20);
         assert_eq!(s.window_withdrawn, 0);
+    }
+
+    #[test]
+    fn disabling_the_window_cap_clears_the_counters() {
+        let mut s = state();
+        s.set_limits(0, 1_000, 60, 0).unwrap();
+        s.record_withdrawal(400, 10).unwrap();
+        s.set_limits(0, 0, 0, 30).unwrap();
+        assert_eq!(s.window_withdrawn, 0);
+        assert_eq!(s.window_start, 30);
     }
 }

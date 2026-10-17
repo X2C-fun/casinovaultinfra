@@ -8,15 +8,17 @@
  * Usage (same wallet as admin AND recipient — house withdraw):
  *   ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
  *   ANCHOR_WALLET=./keys/admin.json \
- *   npm run withdraw -- 0.05 [request_id]
+ *   npm run withdraw -- 0.05 <request_id>
  *
  * Usage (player recipient, admin co-sign):
  *   ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
  *   ANCHOR_WALLET=./keys/player.json \
  *   ADMIN_WALLET=./keys/admin.json \
- *   npm run withdraw -- 0.05 [request_id]
+ *   npm run withdraw -- 0.05 <request_id>
  *
- * `request_id` defaults to the current Unix time in milliseconds.
+ * `request_id` is required, including for house withdrawals: the backend's
+ * listener must be able to match every WithdrawEvent to a record it created,
+ * and treats one it cannot match as an incident (docs/backend-integration.md).
  */
 
 import { BN } from "@coral-xyz/anchor";
@@ -35,15 +37,16 @@ import {
 
 async function main() {
   const [solArg, requestIdArg] = process.argv.slice(2);
-  if (!solArg) {
-    console.error("Usage: withdraw.ts <amount_sol> [request_id]");
+  if (!solArg || !requestIdArg) {
+    console.error("Usage: withdraw.ts <amount_sol> <request_id>");
+    console.error(
+      "request_id is the ID of the hold or house-withdrawal record this payout settles.",
+    );
     process.exit(1);
   }
 
   const amount = solToLamports(solArg);
-  const requestId = requestIdArg
-    ? parseU64(requestIdArg, "request_id")
-    : BigInt(Date.now());
+  const requestId = parseU64(requestIdArg, "request_id");
 
   const provider = loadProvider();
   const program = loadProgram(provider);

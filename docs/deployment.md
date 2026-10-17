@@ -132,7 +132,7 @@ export ANCHOR_WALLET=./keys/admin.json
 
 npm run read                 # admin = your admin pubkey, paused = false, no caps
 npm run deposit -- 0.5       # house bankroll into the pool
-npm run withdraw -- 0.1      # admin signs as both user and admin
+npm run withdraw -- 0.1 1   # admin signs as user and admin; 1 = request_id
 npm run read                 # pool balance reflects the moves
 ```
 
@@ -315,14 +315,26 @@ without moving funds:
    instruction fails until step 3 — the v0.1 state account is ignored, not
    misread.
 3. Run `npm run initialize` with `ANCHOR_WALLET` = upgrade authority and
-   `ADMIN_WALLET` = admin. It creates `["vault_state_v2"]`, keeps the existing
-   pool balance (the event's `vault_balance` shows it), and starts unpaused.
-4. Optionally `npm run set-limits`, then deploy backends built against the v0.2
+   `ADMIN_WALLET` = admin. It creates `["vault_state_v2"]` and keeps the existing
+   pool balance (the event's `vault_balance` shows it). The v0.1 pause flag
+   does **not** carry over: the new state starts unpaused with no caps.
+   Immediately run `npm run set-limits` and, until backends are ready,
+   `npm run set-paused -- true` as the admin.
+4. Deploy backends built against the v0.2
    IDL (`withdraw(amount, request_id)`; two extra accounts appended to
    `deposit`/`withdraw`).
 
-The old 42-byte `["vault_state"]` account stays behind holding its ~0.0012 SOL
-rent; it is inert.
+If the upgrade authority is already a multisig, `npm run initialize` cannot
+sign for it: build the same `initialize` instruction (upgrade authority as
+`authority`, admin as `admin`) as a multisig transaction, and have the admin
+key co-sign the execution.
+
+The old 42-byte `["vault_state"]` account stays behind holding its rent
+(`getMinimumBalanceForRentExemption(42)`); it is inert, since every v0.2
+instruction derives the `["vault_state_v2"]` address. It shares the
+`VaultState` discriminator, though: an off-chain `program.account.vaultState.all()`
+or discriminator-filtered `getProgramAccounts` returns it and fails to decode
+it. Look the state up by its address instead.
 
 ### Upgrade authority
 

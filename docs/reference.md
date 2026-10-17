@@ -94,15 +94,18 @@ Instruction data: 8-byte discriminator, `amount` (u64 LE), `request_id`
 (u64 LE) — 24 bytes.
 
 ```bash
-# Player withdraw with admin co-sign; optional second arg is the request_id
+# Player withdraw with admin co-sign; the second arg is the request_id
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
 ANCHOR_WALLET=./keys/player.json \
 ADMIN_WALLET=./keys/admin.json \
 npm run withdraw -- 0.1 1001
 
 # House withdraw (admin is both user and admin)
-ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/admin.json npm run withdraw -- 0.1
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/admin.json npm run withdraw -- 0.1 1002
 ```
+
+Every withdrawal needs a `request_id`, house withdrawals included: it is the
+ID of the hold or house-withdrawal record the listener settles.
 
 ```ts
 await program.methods
@@ -178,8 +181,11 @@ npm run set-limits -- 5 50 3600
   one. Both must be zero or both non-zero (`InvalidLimits`).
 - Setting limits restarts the window. Emits `LimitsUpdatedEvent`.
 
-Caps are the backstop for a compromised backend: a stolen admin key can drain
-at most one window's worth before you rotate it.
+Caps are the backstop for a compromised backend. They bound the rate, not the
+total: a stolen admin key can take up to one window cap per window (twice that
+across a window boundary) until you rotate it. Tightening the caps applies to
+what was already withdrawn in the running window, so it never grants a fresh
+allowance.
 
 ---
 

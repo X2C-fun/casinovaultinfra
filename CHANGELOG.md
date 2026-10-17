@@ -45,6 +45,17 @@ about 87 KB).
   limitations updated for what v0.2 closes.
 - Tests: `getTxDetails` drops `emit_cpi!` events from failed transactions as
   well as log events (a failed transaction keeps its inner instructions).
+- Review fixes before merge: `set_limits` keeps the running window and its
+  usage when a window cap is already active, so tightening caps during an
+  incident no longer grants a fresh allowance; a clock reading before the
+  window start no longer reopens the window.
+- House withdrawals must match a registered record like any other; the
+  `withdraw` script requires an explicit `request_id`, and `propose-admin`
+  refuses off-curve (PDA or multisig) keys, which could never co-sign.
+- Frontend pre-sign check accepts ComputeBudget instructions before the
+  withdraw, capping the priority fee the user pays at 0.001 SOL.
+- Tests for tightening caps mid-window, another program's ProgramData account,
+  replacing an admin proposal, and `emit_cpi!` events in failed transactions.
 
 ### Fixed
 

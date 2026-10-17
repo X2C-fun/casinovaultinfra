@@ -88,7 +88,8 @@ The safe sequence:
    cluster; the user cannot add one, because you sign the whole message), with
    the user's wallet as `user` and fee payer. The user must already hold
    enough SOL for the fee, and a payout to an empty wallet must be at least the
-   rent-exempt minimum (about 0.00089 SOL) or it fails. Check the amount
+   rent-exempt minimum for an empty account
+   (`getMinimumBalanceForRentExemption(0)`) or it fails. Check the amount
    against the on-chain caps (`max_withdraw_per_tx`, the current window) so the
    user gets a clear error instead of a failed transaction.
    **Never co-sign a transaction you did not build.** A user-built
@@ -123,8 +124,11 @@ The safe sequence:
    - Never release a hold before both conditions of the previous point hold.
      A block-height check alone is not enough if your listener is lagging.
 
-House withdrawals (admin as both user and admin) bypass this flow; exclude the
-admin key when matching events to holds.
+House withdrawals (admin as both user and admin) skip the user-balance hold,
+but **not** the matching. Register each one in a `house_withdrawals` record
+before signing and use its ID as `request_id`. A `WithdrawEvent` with no
+matching hold or house record is exactly what a leaked admin key produces, so
+it must raise the incident in step 6, whoever the recipient is.
 
 Rules for the listener:
 
@@ -149,6 +153,11 @@ Rules for the listener:
   de-duplication at all credits twice when the listener restarts or backfills.
 - Never settle a hold by amount or wallet alone; match on `request_id` first
   and then check `user` and `amount` (see step 6).
+- Events from before a v0.1 → v0.2 upgrade use the v0.1 layout (`WithdrawEvent`
+  had no `request_id`; `VaultInitializedEvent` had no `authority` or
+  `vault_balance`). Record the upgrade's slot and decode older transactions
+  with the v0.1 IDL, or skip them once v0.1 balances are reconciled. Decoding
+  them with the v0.2 IDL fails or misreads fields.
 - The program rejects `deposit`/`withdraw` called through CPI
   (`CpiNotAllowed`), so every one that succeeds is a top-level instruction
   whose event Anchor's parser can read.

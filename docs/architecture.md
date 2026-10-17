@@ -93,7 +93,10 @@ The program guarantees only:
 2. Withdrawals need **user + admin** signatures.
 3. Payouts go only to the signing user.
 4. Only the upgrade authority can initialize, rotate the admin, or change caps.
-5. If caps are set, no sequence of withdrawals exceeds them.
+5. If caps are set, no single withdrawal exceeds the per-transaction cap, and
+   withdrawals inside one window never total more than the window cap. Across
+   a window boundary they can total up to twice the window cap (see
+   [Known limitations](#known-limitations)).
 
 The admin key can still approve any withdrawal within the caps to any
 cooperating wallet; protect it accordingly. The upgrade authority can replace
@@ -117,4 +120,4 @@ events are also emitted with `emit_cpi!`. What remains:
 | Direct transfers emit nothing | SOL sent to the pool with a System transfer has no `DepositEvent`. | Never credit from balance changes; reconcile (Mainnet checklist). |
 | Not audited | — | Get an independent audit before holding mainnet funds. |
 | Admin must be a keypair | `deposit` and `withdraw` must be top-level instructions, so a multisig (e.g. Squads) or PDA admin, which signs through CPI, cannot approve withdrawals. `set_paused` still works from a multisig. | Keep the admin in an HSM/KMS or signer service; use a multisig for the upgrade authority. |
-| Window cap is tumbling | The window restarts at fixed boundaries, so withdrawals just before and just after a boundary can total up to twice `max_withdraw_per_window`. | Set the window cap to half the intended limit, or rely on the per-transaction cap. |
+| Window cap is tumbling | A window opens at the first withdrawal after the previous one expired, not at fixed times, so withdrawals at the end of one window and the start of the next can total up to twice `max_withdraw_per_window`. A leaked admin key can take one window's cap per window, indefinitely, until it is rotated. | Set the window cap to half the largest loss you can absorb in a window, alert on every unmatched `WithdrawEvent`, and rotate the admin as soon as one appears. |

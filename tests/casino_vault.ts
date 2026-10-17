@@ -136,6 +136,17 @@ describe("casino_vault", () => {
   }
 
   /** Sets the withdrawal caps as the upgrade authority. */
+  const BPF_LOADER_UPGRADEABLE = new PublicKey(
+    "BPFLoaderUpgradeab1e11111111111111111111111",
+  );
+  /** ProgramData account of `programId` under the upgradeable loader. */
+  function programDataOf(programId: PublicKey): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [programId.toBuffer()],
+      BPF_LOADER_UPGRADEABLE,
+    )[0];
+  }
+
   async function setLimits(
     perTx: number,
     perWindow: number,
@@ -702,6 +713,42 @@ describe("casino_vault", () => {
         "WithdrawLimitExceeded",
       );
     });
+
+    it("keeps what was already withdrawn when the cap is tightened mid-window", async () => {
+      // Incident response must not hand a leaked admin key a fresh allowance.
+      await setLimits(0, 2 * LAMPORTS_PER_SOL, 3600);
+      const player = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+      await withdraw(player, 1.5 * LAMPORTS_PER_SOL);
+
+      await setLimits(0, 1.6 * LAMPORTS_PER_SOL, 3600);
+      const state = await program.account.vaultState.fetch(vaultState);
+      assert.equal(
+        state.windowWithdrawn.toNumber(),
+        1.5 * LAMPORTS_PER_SOL,
+        "usage in the running window survives set_limits",
+      );
+      await expectAnchorError(
+        withdraw(player, 0.2 * LAMPORTS_PER_SOL),
+        "WindowLimitExceeded",
+      );
+      await withdraw(player, 0.1 * LAMPORTS_PER_SOL);
+    });
+
+    it("rejects another program's ProgramData account", async () => {
+      // The client normally derives the right account; pass the test
+      // fixture's (also upgradeable, same authority) to exercise the seed check.
+      await expectAnchorError(
+        program.methods
+          .setLimits(new BN(1), new BN(0), 0)
+          .accountsPartial({
+            authority,
+            vaultState,
+            programData: programDataOf(probe.programId),
+          })
+          .rpc(),
+        "ConstraintSeeds",
+      );
+    });
   });
 
   describe("set_paused", () => {
@@ -803,6 +850,33 @@ describe("casino_vault", () => {
 
     it("rejects the default public key", async () => {
       await expectAnchorError(propose(PublicKey.default), "InvalidAdmin");
+    });
+
+    it("lets a new proposal replace an earlier one", async () => {
+      const first = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+      const second = await newFundedWallet(provider, LAMPORTS_PER_SOL);
+      await propose(first.publicKey);
+      await propose(second.publicKey);
+
+      await expectAnchorError(accept(first), "NotPendingAdmin");
+      const state = await program.account.vaultState.fetch(vaultState);
+      assert.isTrue(state.admin.equals(admin.publicKey));
+      assert.isTrue(state.pendingAdmin!.equals(second.publicKey));
+      await propose(null);
+    });
+
+    it("rejects another program's ProgramData account", async () => {
+      await expectAnchorError(
+        program.methods
+          .proposeAdmin(Keypair.generate().publicKey)
+          .accountsPartial({
+            authority,
+            vaultState,
+            programData: programDataOf(probe.programId),
+          })
+          .rpc(),
+        "ConstraintSeeds",
+      );
     });
 
     it("keeps the current admin until the proposal is accepted, and can cancel", async () => {
@@ -937,12 +1011,31 @@ describe("casino_vault", () => {
         "the raw logs do carry a DepositEvent",
       );
 
+      // The inner instructions keep the emit_cpi! copy of the event too.
+      const vaultCalls = (raw!.meta!.innerInstructions ?? []).flatMap((group) =>
+        group.instructions.filter((ix) =>
+          raw!.transaction.message.staticAccountKeys[ix.programIdIndex].equals(
+            program.programId,
+          ),
+        ),
+      );
+      assert.isAbove(
+        vaultCalls.length,
+        0,
+        "the raw inner instructions do carry the emit_cpi! event",
+      );
+
       const details = await getTxDetails(program, provider, signature);
       assert.isNotNull(details.err);
       assert.lengthOf(
         details.events,
         0,
-        "a failed transaction yields no events",
+        "a failed transaction yields no log events",
+      );
+      assert.lengthOf(
+        details.cpiEvents,
+        0,
+        "a failed transaction yields no emit_cpi! events either",
       );
       assert.equal(
         await balanceOf(provider, poolVault),
