@@ -19,7 +19,11 @@ backend database, which is driven by the events emitted here.
 
 > **Status: not audited, not for mainnet funds.** The devnet program runs
 > v0.2.0, upgraded in place from v0.1.1 (same program ID and pool). Its
-> withdrawal caps are 0.1 SOL per withdrawal and 0.5 SOL per hour.
+> withdrawal caps are 0.1 SOL per withdrawal and 0.5 SOL per hour,
+> low testing values for this deployment, not a recommendation. The upgrade
+> authority can change them at any time with `npm run set-limits` (see
+> [Reference](docs/reference.md#set_limits--on-chain-withdrawal-caps)), and
+> anyone deploying their own copy sets their own.
 >
 > The devnet deployment keeps the roles separate, as this README recommends:
 >
