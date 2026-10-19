@@ -15,10 +15,15 @@ backend database, which is driven by the events emitted here.
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
 | Rust (SBF)        | `1.84.0`, edition 2021                         |
-| Deployed clusters | devnet (v0.1.1, slot 509121525)                |
+| Deployed clusters | devnet (v0.2.0, upgraded in slot 512813387)    |
 
-> **Status: not audited, not for mainnet funds.** v0.1.1 is a fresh deployment
-> under the program ID above.
+> **Status: not audited, not for mainnet funds.** The devnet program runs
+> v0.2.0, upgraded in place from v0.1.1 (same program ID and pool). Its
+> withdrawal caps are 0.1 SOL per withdrawal and 0.5 SOL per hour,
+> low testing values for this deployment, not a recommendation. The upgrade
+> authority can change them at any time with `npm run set-limits` (see
+> [Reference](docs/reference.md#set_limits--on-chain-withdrawal-caps)), and
+> anyone deploying their own copy sets their own.
 >
 > The devnet deployment keeps the roles separate, as this README recommends:
 >

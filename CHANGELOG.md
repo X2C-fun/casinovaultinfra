@@ -6,6 +6,64 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Program (v0.2.0)
+
+Deployed to devnet on 2026-10-19: the v0.1.1 program was paused, extended by
+88,024 bytes and upgraded in place in slot 512813387, its on-chain IDL
+upgraded, and v0.2 initialized with the existing pool balance kept. Caps are
+0.1 SOL per withdrawal and 0.5 SOL per 3600 s. Deposits, house and player
+withdrawals with `request_id`, the on-chain per-transaction cap, both event
+copies and pause were verified there.
+
+Ports the v0.2 program by @harshshukla9 (`v0.2-program` branch) onto the
+v0.1.1 code, keeping the CPI guard. Breaking on-chain interface; existing
+error codes 6000–6006 keep their meaning. A v0.1.x deployment upgrades in place
+and keeps its pool balance: see "Upgrading from v0.1.x" in
+`docs/deployment.md` (extend the program account first; the binary grows by
+about 87 KB).
+
+- `initialize` requires the program's upgrade authority (plus the admin's
+  co-signature), closing the front-running window after deploy.
+- Two-step admin rotation: `propose_admin` (upgrade authority) and
+  `accept_admin` (pending admin). The admin cannot rotate itself, so a leaked
+  admin key can be replaced in one transaction without a program upgrade.
+- Optional on-chain withdrawal caps via `set_limits` (upgrade authority):
+  per transaction and per tumbling window, applied to every withdrawal
+  including house withdrawals.
+- `withdraw` takes `request_id: u64`, echoed in `WithdrawEvent`, so backends
+  settle exactly the hold they approved.
+- `DepositEvent` / `WithdrawEvent` are also emitted with `emit_cpi!`, which log
+  truncation cannot drop.
+- New events `AdminProposedEvent`, `AdminChangedEvent`, `LimitsUpdatedEvent`;
+  `VaultInitializedEvent` gains `authority` and `vault_balance`.
+- New errors 6007–6012: `NotUpgradeAuthority`, `NotPendingAdmin`,
+  `InvalidAdmin`, `InvalidLimits`, `WithdrawLimitExceeded`,
+  `WindowLimitExceeded`.
+- `VaultState` moves to seed `["vault_state_v2"]` and grows to 175 bytes
+  (pending admin, caps, window counters, 64 reserved bytes). `withdraw` marks
+  `vault_state` writable; `deposit` and `withdraw` append the
+  `event_authority` and `program` accounts. The upgrade authority pays
+  `initialize` rent.
+- Scripts `propose-admin`, `accept-admin`, `set-limits`; `read` shows the
+  upgrade authority, pending admin and caps; `withdraw` takes an optional
+  `request_id`. The frontend shows caps and the pending admin, and its
+  pre-sign check covers `request_id` and the two new accounts.
+- Docs: the backend withdraw flow settles holds by `request_id`; Known
+  limitations updated for what v0.2 closes.
+- Tests: `getTxDetails` drops `emit_cpi!` events from failed transactions as
+  well as log events (a failed transaction keeps its inner instructions).
+- Review fixes before merge: `set_limits` keeps the running window and its
+  usage when a window cap is already active, so tightening caps during an
+  incident no longer grants a fresh allowance; a clock reading before the
+  window start no longer reopens the window.
+- House withdrawals must match a registered record like any other; the
+  `withdraw` script requires an explicit `request_id`, and `propose-admin`
+  refuses off-curve (PDA or multisig) keys, which could never co-sign.
+- Frontend pre-sign check accepts ComputeBudget instructions before the
+  withdraw, capping the priority fee the user pays at 0.001 SOL.
+- Tests for tightening caps mid-window, another program's ProgramData account,
+  replacing an admin proposal, and `emit_cpi!` events in failed transactions.
+
 ### Fixed
 
 - CI installs npm 11 before `npm ci`. Dependabot writes lockfiles with npm 11,

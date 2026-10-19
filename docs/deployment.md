@@ -130,9 +130,9 @@ Do this **immediately** after deploy. Follow
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=./keys/admin.json
 
-npm run read                 # admin = your admin pubkey, paused = false
+npm run read                 # admin = your admin pubkey, paused = false, no caps
 npm run deposit -- 0.5       # house bankroll into the pool
-npm run withdraw -- 0.1      # admin signs as both user and admin
+npm run withdraw -- 0.1 1   # admin signs as user and admin; 1 = request_id
 npm run read                 # pool balance reflects the moves
 ```
 
@@ -144,10 +144,10 @@ any tx signature.
 ## Step-by-step: create and register the admin key
 
 The admin is **not** configured in `Anchor.toml` or in the program source. It is
-set on-chain by the `initialize` instruction:
-
-> **Whoever signs `initialize` becomes `VaultState.admin` permanently.** There
-> is no `update_admin` instruction yet; changing admin needs a program upgrade.
+set on-chain by the `initialize` instruction, which only the program's
+**upgrade authority** (`wallet.json`) can send. The admin co-signs to prove it
+controls the key. Later changes go through
+[`propose_admin` / `accept_admin`](reference.md#propose_admin--accept_admin--rotate-the-admin).
 
 ### 1. Generate a dedicated admin keypair
 
@@ -177,7 +177,7 @@ Copy `keys/admin.json` to secure offline storage now. If it is lost after
 
 ### 3. Fund the admin
 
-`initialize` pays rent for both PDAs (~0.002 SOL). The admin does **not** pay
+The upgrade authority pays the rent in `initialize` (~0.002 SOL). The admin does **not** pay
 fees for player withdrawals — the user is the fee payer, both in the reference
 API route and in `scripts/withdraw.ts` with `ADMIN_WALLET`. The admin pays only
 when it is also the recipient (house withdrawals).
@@ -187,16 +187,17 @@ solana airdrop 2 $(solana-keygen pubkey keys/admin.json) --url https://api.devne
 solana balance $(solana-keygen pubkey keys/admin.json) --url https://api.devnet.solana.com
 ```
 
-### 4. Run `initialize` signed by the admin
+### 4. Run `initialize` as the upgrade authority, co-signed by the admin
 
 ```bash
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
-ANCHOR_WALLET=./keys/admin.json \
+ANCHOR_WALLET=./wallet.json \
+ADMIN_WALLET=./keys/admin.json \
 npm run initialize
 ```
 
-The script refuses to run twice and prints a warning if the on-chain admin does
-not match your wallet.
+The script checks that `ANCHOR_WALLET` is the on-chain upgrade authority and
+refuses to run twice.
 
 ### 5. Verify
 
@@ -206,17 +207,15 @@ ANCHOR_WALLET=./keys/admin.json \
 npm run read
 ```
 
-`admin:` must equal `solana-keygen pubkey keys/admin.json`. If it does not,
-someone else initialized the vault first — **do not accept deposits**; redeploy
-under a new program ID.
+`admin:` must equal `solana-keygen pubkey keys/admin.json`.
 
 ### Rules
 
 - `initialize` runs **once** per program ID. A second call fails with
   "account already in use".
-- Send `initialize` right after deploy. The current program lets **any**
-  signer initialize, so whoever lands first becomes admin (see
-  [Known limitations](architecture.md#known-limitations)).
+- Only the upgrade authority can initialize, so nobody can front-run you. Do it
+  **before** making the program immutable (`--final`): an immutable program has
+  no upgrade authority and can never be initialized.
 - Before routing real money, every backend should assert
   `vault_state.admin == <expected admin pubkey>` at startup.
 
@@ -299,9 +298,48 @@ anchor idl upgrade --filepath target/idl/casino_vault.json \
 ```
 
 `VaultState` and the pool balance survive upgrades. Do **not** change the
-`VaultState` layout or PDA seeds without a migration plan.
+`VaultState` layout or PDA seeds without a migration plan; new fields should
+come out of `reserved`.
 
-Rotate the upgrade authority (for example, to a multisig):
+### Upgrading from v0.1.x
+
+v0.2 keeps the pool vault seed (`["pool_vault"]`) and moves the state to a new
+seed (`["vault_state_v2"]`), so a v0.1 deployment can be upgraded **in place**
+without moving funds:
+
+1. `set_paused true` on v0.1 and stop issuing approvals; let outstanding holds
+   expire (see [Backend withdraw flow](backend-integration.md#backend-withdraw-flow)).
+2. `anchor build`. The v0.2 binary is about 87 KB larger than v0.1.1 (333,816
+   vs 246,816 bytes), so extend the program account first (see above), then
+   `anchor upgrade` and `anchor idl upgrade` as above. From this moment every
+   instruction fails until step 3 — the v0.1 state account is ignored, not
+   misread.
+3. Run `npm run initialize` with `ANCHOR_WALLET` = upgrade authority and
+   `ADMIN_WALLET` = admin. It creates `["vault_state_v2"]` and keeps the existing
+   pool balance (the event's `vault_balance` shows it). The v0.1 pause flag
+   does **not** carry over: the new state starts unpaused with no caps.
+   Immediately run `npm run set-limits` and, until backends are ready,
+   `npm run set-paused -- true` as the admin.
+4. Deploy backends built against the v0.2
+   IDL (`withdraw(amount, request_id)`; two extra accounts appended to
+   `deposit`/`withdraw`).
+
+If the upgrade authority is already a multisig, `npm run initialize` cannot
+sign for it: build the same `initialize` instruction (upgrade authority as
+`authority`, admin as `admin`) as a multisig transaction, and have the admin
+key co-sign the execution.
+
+The old 42-byte `["vault_state"]` account stays behind holding its rent
+(`getMinimumBalanceForRentExemption(42)`); it is inert, since every v0.2
+instruction derives the `["vault_state_v2"]` address. It shares the
+`VaultState` discriminator, though: an off-chain `program.account.vaultState.all()`
+or discriminator-filtered `getProgramAccounts` returns it and fails to decode
+it. Look the state up by its address instead.
+
+### Upgrade authority
+
+Rotate the upgrade authority (for example, to a multisig). This also hands over
+admin rotation and caps:
 
 ```bash
 solana program set-upgrade-authority <PROGRAM_ID> \
@@ -328,8 +366,10 @@ solana program set-upgrade-authority <PROGRAM_ID> --final --url <RPC_URL>
    QuickNode, Alchemy).
 6. Fund the deployer with enough SOL for the program upload (check
    `solana rent <bytes>` against the `.so` size, ×2 buffer).
-7. Deploy → `initialize` with the admin in the same session → `npm run read`
-   to confirm admin.
-8. Backend asserts on-chain admin at startup and reconciles
+7. Deploy → `initialize` (upgrade authority + admin) → `npm run read` to
+   confirm admin.
+8. Set withdrawal caps with `npm run set-limits` sized to what you could lose
+   if the admin key leaked before you noticed.
+9. Backend asserts on-chain admin at startup and reconciles
    `pool balance` vs `sum(db balances) + house bankroll + rent reserve`.
-9. Rehearse `set_paused true/false` before going live.
+10. Rehearse `set_paused true/false` and an admin rotation before going live.

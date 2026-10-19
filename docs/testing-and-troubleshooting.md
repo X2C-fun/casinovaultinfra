@@ -5,7 +5,8 @@ Running the integration suite, and fixes for the errors people hit most.
 ## Local tests
 
 `anchor test` needs a provider wallet at `wallet.json` (see `Anchor.toml`).
-Any keypair works on localnet:
+Any keypair works on localnet. `[test] upgradeable = true` deploys the program
+with that wallet as upgrade authority, which the authority-gated tests need:
 
 ```bash
 [ -f wallet.json ] || solana-keygen new -o wallet.json --no-bip39-passphrase
@@ -46,8 +47,14 @@ Export both before running any `npm run` script (see
 
 ### `Admin mismatch` / `ADMIN_SECRET_KEY does not match on-chain admin`
 
-The key you are signing with is not the one that ran `initialize`. Run
-`npm run read` to see the on-chain admin.
+The key you are signing with is not the current admin (set by `initialize` or
+the last `accept_admin`). Run `npm run read` to see the on-chain admin.
+
+### `NotUpgradeAuthority` (6007)
+
+`initialize`, `propose_admin` and `set_limits` must be signed by the program's
+upgrade authority. Check it with `solana program show <PROGRAM_ID>` or
+`npm run read`.
 
 ### `Blockhash not found` / `429 Too Many Requests`
 
