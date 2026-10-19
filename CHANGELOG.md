@@ -6,14 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Program (v0.2.0)
+## [0.2.0] - 2026-10-19
 
-Deployed to devnet on 2026-10-19: the v0.1.1 program was paused, extended by
-88,024 bytes and upgraded in place in slot 512813387, its on-chain IDL
-upgraded, and v0.2 initialized with the existing pool balance kept. Caps are
-0.1 SOL per withdrawal and 0.5 SOL per 3600 s. Deposits, house and player
-withdrawals with `request_id`, the on-chain per-transaction cap, both event
-copies and pause were verified there.
+Program v0.2: guarded `initialize`, two-step admin rotation, `request_id` on
+withdrawals, optional on-chain withdrawal caps, and events that log truncation
+cannot drop. Breaking on-chain interface. Not audited; not for mainnet funds.
+
+| Devnet | |
+| --- | --- |
+| Program ID | `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7` (unchanged) |
+| Upgrade authority | `Hithh6rJmGiWRdkBsUKqJyDMnEos1fEb5baumpbYwEhr` |
+| Vault admin | `Agb3fnkpc7U1u5y2GutLpnGfKQcWLHVW4PKJ18CwUgDr` |
+| Upgraded | slot 512813387 (2026-10-19), in place from 0.1.1 |
+| Withdrawal caps | 0.1 SOL per withdrawal, 0.5 SOL per 3600 s (testing values) |
+
+The v0.1.1 program was paused, its program account extended by 88,024 bytes,
+upgraded in place, its on-chain IDL upgraded, and v0.2 initialized with the
+existing pool balance kept. Deposits, house and player withdrawals with
+`request_id`, the on-chain per-transaction cap, both event copies and pause
+were verified there. The caps are low testing values, not a recommendation;
+the upgrade authority changes them with `npm run set-limits`.
+
+### Program
 
 Ports the v0.2 program by @harshshukla9 (`v0.2-program` branch) onto the
 v0.1.1 code, keeping the CPI guard. Breaking on-chain interface; existing
@@ -45,7 +59,7 @@ about 87 KB).
   `event_authority` and `program` accounts. The upgrade authority pays
   `initialize` rent.
 - Scripts `propose-admin`, `accept-admin`, `set-limits`; `read` shows the
-  upgrade authority, pending admin and caps; `withdraw` takes an optional
+  upgrade authority, pending admin and caps; `withdraw` takes a required
   `request_id`. The frontend shows caps and the pending admin, and its
   pre-sign check covers `request_id` and the two new accounts.
 - Docs: the backend withdraw flow settles holds by `request_id`; Known
@@ -207,6 +221,7 @@ CI:
   `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`; that deployment is no longer
   maintained (see 0.1.1).
 
-[Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/X2C-fun/casinovaultinfra/compare/a0da5b8...v0.1.1
 [0.1.0]: https://github.com/X2C-fun/casinovaultinfra/commit/a0da5b8
