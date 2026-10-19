@@ -6,7 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Program (v0.2.0, not yet deployed)
+### Program (v0.2.0)
+
+Deployed to devnet on 2026-10-19: the v0.1.1 program was paused, extended by
+88,024 bytes and upgraded in place in slot 512813387, its on-chain IDL
+upgraded, and v0.2 initialized with the existing pool balance kept. Caps are
+0.1 SOL per withdrawal and 0.5 SOL per 3600 s. Deposits, house and player
+withdrawals with `request_id`, the on-chain per-transaction cap, both event
+copies and pause were verified there.
 
 Ports the v0.2 program by @harshshukla9 (`v0.2-program` branch) onto the
 v0.1.1 code, keeping the CPI guard. Breaking on-chain interface; existing

@@ -309,7 +309,7 @@ without moving funds:
 
 1. `set_paused true` on v0.1 and stop issuing approvals; let outstanding holds
    expire (see [Backend withdraw flow](backend-integration.md#backend-withdraw-flow)).
-2. `anchor build`. The v0.2 binary is about 87 KB larger than v0.1.1 (333,784
+2. `anchor build`. The v0.2 binary is about 87 KB larger than v0.1.1 (333,816
    vs 246,816 bytes), so extend the program account first (see above), then
    `anchor upgrade` and `anchor idl upgrade` as above. From this moment every
    instruction fails until step 3 — the v0.1 state account is ignored, not

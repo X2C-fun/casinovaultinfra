@@ -15,12 +15,11 @@ backend database, which is driven by the events emitted here.
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
 | Rust (SBF)        | `1.84.0`, edition 2021                         |
-| Deployed clusters | devnet (v0.1.1, slot 509121525)                |
+| Deployed clusters | devnet (v0.2.0, upgraded in slot 512813387)    |
 
-> **Status: not audited, not for mainnet funds.** The devnet program is still
-> v0.1.1. This branch's code is v0.2, which needs the in-place upgrade in
-> [Deployment](docs/deployment.md#upgrading-from-v01x) before the scripts and
-> frontend can talk to it.
+> **Status: not audited, not for mainnet funds.** The devnet program runs
+> v0.2.0, upgraded in place from v0.1.1 (same program ID and pool). Its
+> withdrawal caps are 0.1 SOL per withdrawal and 0.5 SOL per hour.
 >
 > The devnet deployment keeps the roles separate, as this README recommends:
 >
