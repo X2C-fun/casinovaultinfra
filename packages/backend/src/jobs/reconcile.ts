@@ -1,48 +1,84 @@
-import { reconcilePoolLive } from "@x2c-fun/casinovault-sdk";
-import { loadConfig, requireAdminSecret } from "../config";
-import { loadAdminKeypair } from "../admin";
+import { Connection } from "@solana/web3.js";
+import {
+  fetchVaultState,
+  getReadonlyProgram,
+  reconcilePoolLive,
+} from "@x2c-fun/casinovault-sdk";
+import { loadConfig } from "../config";
 import { createStorage } from "../storage";
-import { buildContext } from "../context";
+import { safeErrorMessage } from "../admin";
 
 /**
  * One-shot reconciliation: checks the pool-solvency invariant
  *   pool balance === Σ player balances + house bankroll + rent reserve
- * against the live finalized pool balance. Exits non-zero on a shortfall so it
- * can gate a cron / alert.
+ * against the FINALIZED pool balance (the ledger is built from finalized
+ * events, so both sides are read at the same commitment). Exits non-zero on a
+ * shortfall so it can gate a cron / alert.
  *
- * `houseBankroll` is read from HOUSE_BANKROLL_LAMPORTS (the house's own funds in
- * the pool). Player totals come from the ledger.
+ * Does NOT load ADMIN_SECRET_KEY. It only reads the ledger the API and
+ * listener share (same DB_PATH).
+ *
+ * House bankroll = the ledger's tracked house balance (admin-wallet deposits
+ * minus settled house withdrawals; open house holds are still in the pool)
+ * + optional HOUSE_BANKROLL_LAMPORTS for house funds the ledger cannot see
+ * (e.g. seeded by a plain System transfer, which emits no DepositEvent).
  */
 async function main(): Promise<void> {
   const config = loadConfig();
-  const admin = loadAdminKeypair(requireAdminSecret());
-  const storage = await createStorage(config);
-  const ctx = buildContext(config, admin, storage.ledger);
+  const extra = process.env.HOUSE_BANKROLL_LAMPORTS?.trim() || "0";
+  if (!/^\d+$/.test(extra)) {
+    throw new Error("HOUSE_BANKROLL_LAMPORTS must be a non-negative integer");
+  }
+  const connection = new Connection(config.rpcUrl, { commitment: "finalized" });
+  // Read-only, and the file must already exist: a wrong DB_PATH must fail,
+  // not silently create an empty ledger that "reconciles" to zero liabilities.
+  const storage = await createStorage(config, { readOnly: true });
+  try {
+    const totals = storage.ledger.totals();
+    const house = storage.ledger.houseBalance();
+    const playerBalancesTotal = totals.available + totals.pending;
+    const houseBankroll = house.available + house.pending + BigInt(extra);
 
-  const totals = storage.ledger.totals();
-  const playerBalancesTotal = totals.available + totals.pending;
-  const houseBankroll = BigInt(process.env.HOUSE_BANKROLL_LAMPORTS?.trim() || "0");
+    const result = await reconcilePoolLive(connection, {
+      playerBalancesTotal,
+      houseBankroll,
+      programId: config.programId,
+    });
+    const state = await fetchVaultState(
+      getReadonlyProgram(connection, config.programId),
+      config.programId,
+    );
 
-  const result = await reconcilePoolLive(ctx.connection, {
-    playerBalancesTotal,
-    houseBankroll,
-    programId: config.programId,
-  });
+    console.log("pool balance :", result.poolBalance.toString());
+    console.log("players      :", playerBalancesTotal.toString());
+    console.log("house        :", houseBankroll.toString());
+    console.log("expected     :", result.expected.toString());
+    console.log("difference   :", result.difference.toString());
+    console.log("solvent      :", result.solvent);
+    console.log("balanced     :", result.balanced);
+    console.log("vault paused :", state?.paused ?? "not initialized");
+    const progress = storage.ledger.getProgress();
+    const openHolds = storage.ledger.listOpenHolds();
+    console.log("listener slot:", progress.slot ?? "none (listener has not run)");
+    console.log("open holds   :", openHolds.length);
+    const incident = storage.ledger.getIncident();
+    if (incident) console.log("INCIDENT OPEN:", incident.reason);
 
-  console.log("pool balance :", result.poolBalance.toString());
-  console.log("expected     :", result.expected.toString());
-  console.log("difference   :", result.difference.toString());
-  console.log("solvent      :", result.solvent);
-  console.log("balanced     :", result.balanced);
-  storage.close();
-
-  if (!result.solvent) {
-    console.error("INSOLVENT: pool cannot cover liabilities — investigate and pause.");
-    process.exit(2);
+    if (!result.solvent) {
+      console.error(
+        "INSOLVENT: pool cannot cover liabilities - investigate and pause.\n" +
+          "  If the listener is behind the chain (listener slot above is old, or holds are " +
+          "unsettled), this may be transient: finalized withdrawals not yet applied make the " +
+          "ledger overstate liabilities. Re-run after the listener catches up before acting.",
+      );
+      process.exitCode = 2;
+    }
+  } finally {
+    storage.close();
   }
 }
 
 main().catch((err) => {
-  console.error("reconcile fatal:", err);
+  console.error("reconcile fatal:", safeErrorMessage(err));
   process.exit(1);
 });

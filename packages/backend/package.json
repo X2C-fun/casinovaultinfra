@@ -9,15 +9,18 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
+    "api": "tsx src/api.ts",
     "listener": "tsx src/listener/run.ts",
     "reconcile": "tsx src/jobs/reconcile.ts",
+    "house-withdraw": "tsx src/cli/house-withdraw.ts",
+    "incident": "tsx src/cli/incident.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.98.4",
-    "@x2c-fun/casinovault-sdk": "^0.1.0",
+    "@x2c-fun/casinovault-sdk": "file:../sdk",
     "better-sqlite3": "^11.10.0"
   },
   "devDependencies": {

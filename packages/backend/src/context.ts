@@ -1,10 +1,6 @@
 import { Connection, Keypair } from "@solana/web3.js";
-import { AnchorProvider, Program } from "@coral-xyz/anchor";
-import {
-  getProgram,
-  loadVaultIdl,
-  type CasinoVault,
-} from "@x2c-fun/casinovault-sdk";
+import type { Program } from "@coral-xyz/anchor";
+import { getProgram, type CasinoVault } from "@x2c-fun/casinovault-sdk";
 import type { Config } from "./config";
 import type { Ledger } from "./ledger/types";
 
@@ -47,18 +43,4 @@ export function buildContext(
   });
   const program = getProgram(connection, adminWallet(admin), config.programId);
   return { config, connection, admin, program, ledger };
-}
-
-/** A read-only program at `finalized` commitment, for the settlement listener. */
-export function finalizedProgram(ctx: ServiceContext): Program<CasinoVault> {
-  const connection = new Connection(ctx.config.rpcUrl, { commitment: "finalized" });
-  const dummy = {
-    publicKey: ctx.admin.publicKey,
-    signTransaction: async <T>(tx: T) => tx,
-    signAllTransactions: async <T>(txs: T[]) => txs,
-  };
-  const provider = new AnchorProvider(connection, dummy, {
-    commitment: "finalized",
-  });
-  return new Program<CasinoVault>(loadVaultIdl(ctx.config.programId), provider);
 }

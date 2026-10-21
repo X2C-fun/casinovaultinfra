@@ -3,29 +3,87 @@ import {
   type Balance,
   type Hold,
   type HoldStatus,
+  type IncidentRecord,
+  type IncidentState,
   type Ledger,
+  type LedgerOptions,
+  type ListenerProgress,
   type SettleOutcome,
+  DestinationMismatchError,
+  IncidentOpenError,
   InsufficientFundsError,
+  assertU64RequestId,
+  isIncidentOutcome,
+  randomRequestId,
 } from "./types";
+import { evaluateSettle } from "./settle-rules";
+
+const SCHEMA_VERSION = 2;
 
 /**
  * Durable ledger backed by SQLite (better-sqlite3). Synchronous, so the
  * check-then-hold critical section stays atomic, and holds survive a crash.
- * The same logic ports to Postgres with a transaction around `placeHold`.
+ * Every multi-step mutation runs in one `db.transaction`, so a crash (or a
+ * throw) between steps rolls all of it back. The same logic ports to Postgres
+ * with a transaction around each method.
  *
- * Lamport amounts are stored as TEXT to preserve full u64 range.
+ * Lamport amounts AND request IDs are stored as TEXT (decimal) to preserve the
+ * full u64 range; nothing here goes through `Number()`.
+ *
+ * The HTTP API, the listener and the reconcile job must open the SAME file.
  */
 export class SqliteLedger implements Ledger {
   private db: Database.Database;
+  private readonly adminKey?: string;
+  private readonly nextId: () => bigint;
+  private readonly failpoint: (step: string) => void;
 
-  constructor(path = "casinovault.db") {
+  /**
+   * `readOnly` opens an EXISTING, already-migrated database without write
+   * access (reconcile uses it, so a wrong DB_PATH fails instead of creating an
+   * empty ledger that "reconciles" to zero). Every mutating method runs in an
+   * IMMEDIATE transaction: under WAL a deferred transaction that upgrades from
+   * read to write fails with SQLITE_BUSY_SNAPSHOT when another process (API vs
+   * listener) committed in between; IMMEDIATE takes the write lock up front and
+   * waits on `busy_timeout` instead.
+   */
+  constructor(
+    path = "casinovault.db",
+    opts: LedgerOptions & { readOnly?: boolean } = {},
+  ) {
+    this.adminKey = opts.adminKey;
+    this.nextId = opts.requestIdGenerator ?? randomRequestId;
+    this.failpoint = opts.failpoint ?? (() => {});
+    if (opts.readOnly) {
+      this.db = new Database(path, { readonly: true, fileMustExist: true });
+      this.db.pragma("busy_timeout = 5000");
+      const version = this.db.pragma("user_version", { simple: true }) as number;
+      if (version !== SCHEMA_VERSION) {
+        this.db.close();
+        throw new Error(`${path} is not a casinovault ledger (schema ${version})`);
+      }
+      return;
+    }
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
+    this.db.pragma("busy_timeout = 5000");
     this.migrate();
   }
 
   private migrate(): void {
+    const version = this.db.pragma("user_version", { simple: true }) as number;
+    const hasHolds = this.db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'holds'")
+      .get();
+    if (version === 0 && hasHolds) {
+      throw new Error(
+        "ledger database uses an older schema (integer request ids); start from a fresh DB_PATH",
+      );
+    }
+    if (version > SCHEMA_VERSION) {
+      throw new Error(`ledger database schema ${version} is newer than this backend`);
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS balances (
         owner_key TEXT PRIMARY KEY,
@@ -33,7 +91,7 @@ export class SqliteLedger implements Ledger {
         pending   TEXT NOT NULL DEFAULT '0'
       );
       CREATE TABLE IF NOT EXISTS holds (
-        request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT PRIMARY KEY,
         owner_key TEXT NOT NULL,
         amount TEXT NOT NULL,
         destination TEXT NOT NULL,
@@ -41,18 +99,67 @@ export class SqliteLedger implements Ledger {
         status TEXT NOT NULL DEFAULT 'open',
         is_house INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
-        tx_signature TEXT
+        tx_signature TEXT,
+        settled_event_key TEXT
       );
       CREATE INDEX IF NOT EXISTS holds_status ON holds(status);
       CREATE TABLE IF NOT EXISTS seen_events (source_key TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS incidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        detail TEXT NOT NULL
+      );
     `);
+    this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
   }
 
-  ensureUser(ownerKey: string): void {
+  // --- meta helpers -----------------------------------------------------------
+
+  private getMeta(key: string): string | null {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  }
+
+  private setMeta(key: string, value: string): void {
     this.db
-      .prepare("INSERT OR IGNORE INTO balances(owner_key) VALUES (?)")
-      .run(ownerKey);
+      .prepare(
+        "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run(key, value);
+  }
+
+  private deleteMeta(key: string): void {
+    this.db.prepare("DELETE FROM meta WHERE key = ?").run(key);
+  }
+
+  private markSeen(sourceKey: string): boolean {
+    return (
+      this.db.prepare("INSERT OR IGNORE INTO seen_events(source_key) VALUES (?)").run(sourceKey)
+        .changes > 0
+    );
+  }
+
+  private addAvailable(ownerKey: string, delta: bigint): void {
+    this.ensureUser(ownerKey);
+    const b = this.getBalance(ownerKey);
+    this.db
+      .prepare("UPDATE balances SET available = ? WHERE owner_key = ?")
+      .run((b.available + delta).toString(), ownerKey);
+  }
+
+  private setHouse(h: { available: bigint; pending: bigint }): void {
+    this.setMeta("house_available", h.available.toString());
+    this.setMeta("house_pending", h.pending.toString());
+  }
+
+  // --- balances ---------------------------------------------------------------
+
+  ensureUser(ownerKey: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO balances(owner_key) VALUES (?)").run(ownerKey);
   }
 
   getBalance(ownerKey: string): Balance {
@@ -67,20 +174,53 @@ export class SqliteLedger implements Ledger {
   }
 
   credit(ownerKey: string, amount: bigint, sourceKey: string): "credited" | "duplicate" {
-    const tx = this.db.transaction(() => {
-      const inserted = this.db
-        .prepare("INSERT OR IGNORE INTO seen_events(source_key) VALUES (?)")
-        .run(sourceKey);
-      if (inserted.changes === 0) return "duplicate" as const;
-      this.ensureUser(ownerKey);
-      const b = this.getBalance(ownerKey);
-      this.db
-        .prepare("UPDATE balances SET available = ? WHERE owner_key = ?")
-        .run((b.available + amount).toString(), ownerKey);
+    return this.db.transaction(() => {
+      if (!this.markSeen(sourceKey)) return "duplicate" as const;
+      this.failpoint("credit:after-seen");
+      this.addAvailable(ownerKey, amount);
       return "credited" as const;
-    });
-    return tx();
+    }).immediate();
   }
+
+  applyDepositEvent(
+    sourceKey: string,
+    event: { user: string; amount: bigint },
+  ): "credited" | "house" | "duplicate" {
+    return this.db.transaction(() => {
+      if (!this.markSeen(sourceKey)) return "duplicate" as const;
+      this.failpoint("deposit:after-seen");
+      if (this.adminKey !== undefined && event.user === this.adminKey) {
+        const h = this.houseBalance();
+        this.setHouse({ available: h.available + event.amount, pending: h.pending });
+        return "house" as const;
+      }
+      this.addAvailable(event.user, event.amount);
+      return "credited" as const;
+    }).immediate();
+  }
+
+  applyWithdrawEvent(
+    sourceKey: string,
+    event: { requestId: bigint; user: string; amount: bigint; txSignature: string },
+  ): SettleOutcome | { kind: "duplicate" } {
+    return this.db.transaction((): SettleOutcome | { kind: "duplicate" } => {
+      if (!this.markSeen(sourceKey)) return { kind: "duplicate" };
+      this.failpoint("withdraw:after-seen");
+      const outcome = this.settleHoldInner({ ...event, eventKey: sourceKey });
+      this.failpoint("withdraw:after-settle");
+      if (isIncidentOutcome(outcome)) {
+        this.openIncidentInner(`WithdrawEvent ${outcome.kind}`, {
+          sourceKey,
+          requestId: event.requestId.toString(),
+          user: event.user,
+          amount: event.amount.toString(),
+        });
+      }
+      return outcome;
+    }).immediate();
+  }
+
+  // --- holds ------------------------------------------------------------------
 
   placeHold(params: {
     ownerKey: string;
@@ -88,7 +228,13 @@ export class SqliteLedger implements Ledger {
     destination: string;
     lastValidBlockHeight: number;
   }): Hold {
-    const tx = this.db.transaction(() => {
+    return this.db.transaction(() => {
+      const incident = this.getIncident();
+      if (incident) throw new IncidentOpenError(incident.reason);
+      if (params.destination !== params.ownerKey) {
+        throw new DestinationMismatchError("destination must be the owner's own wallet");
+      }
+      if (params.amount <= 0n) throw new Error("amount must be positive");
       this.ensureUser(params.ownerKey);
       const b = this.getBalance(params.ownerKey);
       if (b.available < params.amount) {
@@ -102,8 +248,7 @@ export class SqliteLedger implements Ledger {
           params.ownerKey,
         );
       return this.insertHold({ ...params, isHouse: false });
-    });
-    return tx();
+    }).immediate();
   }
 
   placeHouseHold(params: {
@@ -111,13 +256,26 @@ export class SqliteLedger implements Ledger {
     destination: string;
     lastValidBlockHeight: number;
   }): Hold {
-    return this.insertHold({
-      ownerKey: params.destination,
-      amount: params.amount,
-      destination: params.destination,
-      lastValidBlockHeight: params.lastValidBlockHeight,
-      isHouse: true,
-    });
+    return this.db.transaction(() => {
+      const incident = this.getIncident();
+      if (incident) throw new IncidentOpenError(incident.reason);
+      if (this.adminKey === undefined || params.destination !== this.adminKey) {
+        throw new DestinationMismatchError("house withdrawals must pay the admin wallet");
+      }
+      if (params.amount <= 0n) throw new Error("amount must be positive");
+      const h = this.houseBalance();
+      if (h.available < params.amount) {
+        throw new InsufficientFundsError("house", params.amount, h.available);
+      }
+      this.setHouse({ available: h.available - params.amount, pending: h.pending + params.amount });
+      return this.insertHold({
+        ownerKey: params.destination,
+        amount: params.amount,
+        destination: params.destination,
+        lastValidBlockHeight: params.lastValidBlockHeight,
+        isHouse: true,
+      });
+    }).immediate();
   }
 
   private insertHold(params: {
@@ -127,12 +285,15 @@ export class SqliteLedger implements Ledger {
     lastValidBlockHeight: number;
     isHouse: boolean;
   }): Hold {
-    const info = this.db
-      .prepare(
-        `INSERT INTO holds(owner_key, amount, destination, last_valid_block_height, status, is_house, created_at)
-         VALUES (?, ?, ?, ?, 'open', ?, ?)`,
-      )
-      .run(
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO holds(request_id, owner_key, amount, destination, last_valid_block_height, status, is_house, created_at)
+       VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`,
+    );
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const requestId = this.nextId();
+      assertU64RequestId(requestId);
+      const info = insert.run(
+        requestId.toString(),
         params.ownerKey,
         params.amount.toString(),
         params.destination,
@@ -140,7 +301,10 @@ export class SqliteLedger implements Ledger {
         params.isHouse ? 1 : 0,
         Date.now(),
       );
-    return this.getHold(BigInt(info.lastInsertRowid as number))!;
+      if (info.changes === 1) return this.getHold(requestId)!;
+      // PRIMARY KEY collision: draw again (uniqueness is enforced by the DB).
+    }
+    throw new Error("could not allocate a unique request id");
   }
 
   settleHold(params: {
@@ -148,34 +312,55 @@ export class SqliteLedger implements Ledger {
     user: string;
     amount: bigint;
     txSignature: string;
+    eventKey?: string;
   }): SettleOutcome {
-    const tx = this.db.transaction((): SettleOutcome => {
-      const hold = this.getHold(params.requestId);
-      if (!hold) return { kind: "notfound" };
-      if (hold.status === "settled") return { kind: "already" };
-      if (hold.status === "released") return { kind: "mismatch", hold };
-      if (hold.destination !== params.user || hold.amount !== params.amount) {
-        return { kind: "mismatch", hold };
-      }
-      if (!hold.isHouse) {
-        const b = this.getBalance(hold.ownerKey);
-        this.db
-          .prepare("UPDATE balances SET pending = ? WHERE owner_key = ?")
-          .run((b.pending - hold.amount).toString(), hold.ownerKey);
-      }
+    return this.db.transaction(() => this.settleHoldInner(params)).immediate();
+  }
+
+  private settleHoldInner(params: {
+    requestId: bigint;
+    user: string;
+    amount: bigint;
+    txSignature: string;
+    eventKey?: string;
+  }): SettleOutcome {
+    const hold = this.getHold(params.requestId);
+    const outcome = evaluateSettle(hold, params, this.adminKey);
+    if (outcome.kind !== "settled") return outcome;
+    const h = hold!;
+    if (h.isHouse) {
+      const house = this.houseBalance();
+      this.setHouse({ available: house.available, pending: house.pending - h.amount });
+    } else {
+      const b = this.getBalance(h.ownerKey);
       this.db
-        .prepare("UPDATE holds SET status = 'settled', tx_signature = ? WHERE request_id = ?")
-        .run(params.txSignature, Number(params.requestId));
-      return { kind: "settled", hold: { ...hold, status: "settled", txSignature: params.txSignature } };
-    });
-    return tx();
+        .prepare("UPDATE balances SET pending = ? WHERE owner_key = ?")
+        .run((b.pending - h.amount).toString(), h.ownerKey);
+    }
+    this.db
+      .prepare(
+        "UPDATE holds SET status = 'settled', tx_signature = ?, settled_event_key = ? WHERE request_id = ?",
+      )
+      .run(params.txSignature, params.eventKey ?? null, h.requestId.toString());
+    return {
+      kind: "settled",
+      hold: {
+        ...h,
+        status: "settled",
+        txSignature: params.txSignature,
+        settledEventKey: params.eventKey ?? null,
+      },
+    };
   }
 
   releaseHold(requestId: bigint): "released" | "cannot" {
-    const tx = this.db.transaction((): "released" | "cannot" => {
+    return this.db.transaction((): "released" | "cannot" => {
       const hold = this.getHold(requestId);
       if (!hold || hold.status !== "open") return "cannot";
-      if (!hold.isHouse) {
+      if (hold.isHouse) {
+        const h = this.houseBalance();
+        this.setHouse({ available: h.available + hold.amount, pending: h.pending - hold.amount });
+      } else {
         const b = this.getBalance(hold.ownerKey);
         this.db
           .prepare("UPDATE balances SET available = ?, pending = ? WHERE owner_key = ?")
@@ -187,16 +372,15 @@ export class SqliteLedger implements Ledger {
       }
       this.db
         .prepare("UPDATE holds SET status = 'released' WHERE request_id = ?")
-        .run(Number(requestId));
+        .run(requestId.toString());
       return "released";
-    });
-    return tx();
+    }).immediate();
   }
 
   getHold(requestId: bigint): Hold | null {
     const row = this.db
       .prepare("SELECT * FROM holds WHERE request_id = ?")
-      .get(Number(requestId)) as Record<string, unknown> | undefined;
+      .get(requestId.toString()) as Record<string, unknown> | undefined;
     return row ? rowToHold(row) : null;
   }
 
@@ -208,10 +392,14 @@ export class SqliteLedger implements Ledger {
   }
 
   recordEventSeen(sourceKey: string): "new" | "seen" {
-    const info = this.db
-      .prepare("INSERT OR IGNORE INTO seen_events(source_key) VALUES (?)")
-      .run(sourceKey);
-    return info.changes > 0 ? "new" : "seen";
+    return this.markSeen(sourceKey) ? "new" : "seen";
+  }
+
+  houseBalance(): { available: bigint; pending: bigint } {
+    return {
+      available: BigInt(this.getMeta("house_available") ?? "0"),
+      pending: BigInt(this.getMeta("house_pending") ?? "0"),
+    };
   }
 
   totals(): { available: bigint; pending: bigint } {
@@ -228,19 +416,93 @@ export class SqliteLedger implements Ledger {
     return { available, pending };
   }
 
-  getCursor(): string | null {
-    const row = this.db
-      .prepare("SELECT value FROM meta WHERE key = 'listener_cursor'")
-      .get() as { value: string } | undefined;
-    return row?.value ?? null;
+  // --- incident kill-switch ---------------------------------------------------
+
+  getIncident(): IncidentState | null {
+    const raw = this.getMeta("incident_open");
+    return raw ? (JSON.parse(raw) as IncidentState) : null;
   }
 
-  setCursor(signature: string): void {
+  openIncident(reason: string, detail: Record<string, unknown> = {}): void {
+    this.db.transaction(() => this.openIncidentInner(reason, detail)).immediate();
+  }
+
+  private openIncidentInner(reason: string, detail: Record<string, unknown>): void {
+    const at = Date.now();
+    if (!this.getMeta("incident_open")) {
+      this.setMeta("incident_open", JSON.stringify({ reason, openedAt: at }));
+    }
     this.db
-      .prepare(
-        "INSERT INTO meta(key, value) VALUES ('listener_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      )
-      .run(signature);
+      .prepare("INSERT INTO incidents(at, reason, detail) VALUES (?, ?, ?)")
+      .run(at, reason, JSON.stringify(detail));
+  }
+
+  clearIncident(): boolean {
+    return this.db.transaction(() => {
+      const was = this.getMeta("incident_open") !== null;
+      this.deleteMeta("incident_open");
+      return was;
+    }).immediate();
+  }
+
+  listIncidents(): IncidentRecord[] {
+    return this.db
+      .prepare("SELECT at, reason, detail FROM incidents ORDER BY id")
+      .all() as IncidentRecord[];
+  }
+
+  // --- listener progress ------------------------------------------------------
+
+  getProgress(): ListenerProgress {
+    const slot = this.getMeta("listener_slot");
+    const drained = this.getMeta("drained_through_block_height");
+    return {
+      cursor: this.getMeta("listener_cursor"),
+      slot: slot === null ? null : Number(slot),
+      drainedThroughBlockHeight: drained === null ? null : Number(drained),
+    };
+  }
+
+  getCursor(): string | null {
+    return this.getMeta("listener_cursor");
+  }
+
+  setCursor(signature: string, slot?: number): void {
+    this.db.transaction(() => {
+      this.setMeta("listener_cursor", signature);
+      if (slot !== undefined) this.setMeta("listener_slot", String(slot));
+    }).immediate();
+  }
+
+  setDrainedThroughBlockHeight(height: number): void {
+    this.setMeta("drained_through_block_height", String(height));
+  }
+
+  // --- listener lease (lock row: holder id + heartbeat expiry) -----------------
+
+  acquireListenerLease(holder: string, ttlMs: number, now = Date.now()): boolean {
+    return this.db
+      .transaction(() => {
+        const raw = this.getMeta("listener_lease");
+        if (raw) {
+          const lease = JSON.parse(raw) as { holder: string; expiresAt: number };
+          if (lease.holder !== holder && lease.expiresAt > now) return false;
+        }
+        this.setMeta("listener_lease", JSON.stringify({ holder, expiresAt: now + ttlMs }));
+        return true;
+      })
+      .immediate();
+  }
+
+  releaseListenerLease(holder: string): void {
+    this.db
+      .transaction(() => {
+        const raw = this.getMeta("listener_lease");
+        if (raw && (JSON.parse(raw) as { holder: string }).holder === holder) {
+          this.deleteMeta("listener_lease");
+        }
+      })
+      .immediate();
   }
 
   close(): void {
@@ -250,7 +512,7 @@ export class SqliteLedger implements Ledger {
 
 function rowToHold(row: Record<string, unknown>): Hold {
   return {
-    requestId: BigInt(row.request_id as number),
+    requestId: BigInt(row.request_id as string),
     ownerKey: row.owner_key as string,
     amount: BigInt(row.amount as string),
     destination: row.destination as string,
@@ -259,5 +521,6 @@ function rowToHold(row: Record<string, unknown>): Hold {
     isHouse: (row.is_house as number) === 1,
     createdAt: row.created_at as number,
     txSignature: (row.tx_signature as string | null) ?? null,
+    settledEventKey: (row.settled_event_key as string | null) ?? null,
   };
 }
