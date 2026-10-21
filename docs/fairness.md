@@ -8,14 +8,14 @@ It is a *primitive*, not a game: it does not move funds. The honesty of this doc
 is the point, so it is explicit about what the program guarantees and what an
 integrator still has to build.
 
-- **Program:** `programs/casino_fair`
+- **Program:** `reference/casino_fair`
 - **Program ID:** `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`
 - **State:** one `Flip` PDA per player, `["flip", player]`.
 
 > **Standalone crate, by design.** `casino_fair` is intentionally **not** a
 > member of the Cargo workspace and is **not** built by `anchor build` (see the
 > comment in the root `Cargo.toml` and the toolchain limitation at the bottom of
-> this doc). Build and test it from its own directory: `cd programs/casino_fair`.
+> this doc). Build and test it from its own directory: `cd reference/casino_fair`.
 > This keeps the vault's build, `Cargo.lock`, and CI exactly as they were.
 
 ## What it does
@@ -110,7 +110,7 @@ on devnet/mainnet or an ephemeral rollup — not on a bare local validator. Roug
 manual steps on devnet:
 
 1. On a toolchain that can produce the SBF binary (see the limitation below),
-   build the crate (`cd programs/casino_fair && cargo build-sbf`) and deploy it
+   build the crate (`cd reference/casino_fair && cargo build-sbf`) and deploy it
    with `solana program deploy` / `anchor deploy` under program ID
    `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`. (To drive it through Anchor
    instead, temporarily add `casino_fair` back to the workspace members and the
@@ -126,13 +126,13 @@ manual steps on devnet:
 
 ## Testing
 
-- **Rust unit tests** — from the crate directory (`cd programs/casino_fair &&
+- **Rust unit tests** — from the crate directory (`cd reference/casino_fair &&
   cargo test`, host toolchain) — cover the pure logic: the randomness →
   coin-side mapping, the `won` computation, guess validation, the account
   layout, and the idempotency guard (`is_awaiting` accepts exactly the live
   round — a duplicate or post-retry callback is rejected). These run today and
   pass (7 tests).
-- **`programs/casino_fair/tests/casino_fair.ts`** covers what a validator with
+- **`reference/casino_fair/tests/casino_fair.ts`** covers what a validator with
   the program deployed can reach: `init_flip`, the pre-CPI `request_flip`
   validation (`InvalidGuess`, `InvalidOracleQueue`), and the spoofed-callback
   rejection that proves the `#[vrf_callback]` identity gate. The happy path

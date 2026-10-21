@@ -77,7 +77,7 @@ build a game on the vault:
 | --------- | ---- | ---------- |
 | **TypeScript SDK** | [`packages/sdk`](packages/sdk) | `@x2c-fun/casinovault-sdk` — typed IDL, PDAs, instruction builders, a safe withdraw-tx builder + client assertion, event decoding, and pool reconciliation. Publishable to npm. |
 | **Settlement backend** | [`packages/backend`](packages/backend) | A reference backend implementing [the withdraw flow](docs/backend-integration.md): balance holds, debit-at-approval, a finalized-only event listener, incident pause, and reconciliation (SQLite or in-memory). |
-| **Fairness primitive** | [`programs/casino_fair`](programs/casino_fair) | A provably-fair coin-flip built on MagicBlock VRF — the randomness companion to the vault. See [docs/fairness.md](docs/fairness.md). Built standalone (see that doc). |
+| **Fairness primitive** | [`reference/casino_fair`](reference/casino_fair) | A provably-fair coin-flip built on MagicBlock VRF — the randomness companion to the vault. See [docs/fairness.md](docs/fairness.md). Built standalone (see that doc). |
 
 These are devnet-oriented references, not production-hardened or audited — the
 backend's HTTP API ships without auth, and `casino_fair` is a primitive, not a

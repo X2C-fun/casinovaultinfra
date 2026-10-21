@@ -22,7 +22,7 @@ bun.lockb
 *.db-wal
 *.db-shm
 # casino_fair is a standalone crate; its lock regenerates on build
-programs/casino_fair/Cargo.lock
+reference/casino_fair/Cargo.lock
 # Local dedupe workaround dir (never committed)
 .dup_bak/
 

@@ -137,7 +137,7 @@ Keep [`CHANGELOG.md`](CHANGELOG.md) updated with each release.
 
 ## Not in this runbook (deliberately)
 
-- **`programs/casino_fair`** (the VRF coin-flip) is **not** published or
+- **`reference/casino_fair`** (the VRF coin-flip) is **not** published or
   deployed here. It is written and its unit tests pass, but it cannot be built
   for Solana on the pinned toolchain (a dependency needs Rust `edition2024`).
   Deploying it needs newer Solana platform-tools — see

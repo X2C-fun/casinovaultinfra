@@ -21,7 +21,7 @@ All notable changes to this project are documented here. The format follows
   `WithdrawEvent`, expiry release, and a reconciliation job. SQLite (durable) or
   in-memory ledger; minimal HTTP API (unauthenticated — add your own auth). 8
   unit tests covering the double-spend defense and settlement state machine.
-- **Provable-fairness primitive** (`programs/casino_fair`, program ID
+- **Provable-fairness primitive** (`reference/casino_fair`, program ID
   `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`): a minimal coin-flip built on
   MagicBlock VRF (`#[vrf]` request + `#[vrf_callback]` authenticated callback),
   with an idempotent, round-bound settlement. See `docs/fairness.md`. Host unit

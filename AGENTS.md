@@ -22,7 +22,7 @@ them.
 | **Vault program** | The **safe**. Custody only: moves SOL in/out of one shared pool under authority checks and emits an event for every change. Knows nothing about balances, bets, odds, or games. | `programs/casino_vault` |
 | **SDK** | The **toolkit**. Typed client: IDL, PDAs, instruction builders, a safe withdraw-tx builder + verifier, event decoding, reconciliation. | `packages/sdk` |
 | **Settlement backend** | The **cashier/accountant**. Keeps per-player balances, approves payouts safely, watches the chain, settles from events, pauses on incident, reconciles. This is where solvency actually lives. | `packages/backend` |
-| **Fairness primitive** | The **provably-fair coin-flipper** (MagicBlock VRF). Randomness nobody can bias. A reference, not a game. | `programs/casino_fair` |
+| **Fairness primitive** | The **provably-fair coin-flipper** (MagicBlock VRF). Randomness nobody can bias. A reference, not a game. | `reference/casino_fair` |
 
 The vault is deliberately dumb. All accounting and game logic live **off-chain**
 in the backend, driven by the events the vault emits.
@@ -32,10 +32,11 @@ in the backend, driven by the events the vault emits.
 ## 2. Repository map
 
 ```
-programs/
+programs/            # everything `anchor build` builds (both deploy to devnet)
   casino_vault/      # the custody program (Anchor 0.32.1) — the deployed artifact
   cpi_probe/         # test-only fixture: forwards vault calls through CPI
-  casino_fair/       # VRF coin-flip reference — STANDALONE crate (see §6)
+reference/
+  casino_fair/       # VRF coin-flip reference — STANDALONE crate, NOT in programs/ (see §6)
 packages/
   sdk/               # @x2c-fun/casinovault-sdk  (publishable)
   backend/           # @x2c-fun/casinovault-backend  (reference, unauthenticated)
@@ -108,9 +109,9 @@ cp .env.example .env              # then run it (needs ADMIN_SECRET_KEY + RPC):
 npm run start                     # API + listener
 ```
 
-**Fairness program** (`programs/casino_fair`, standalone)
+**Fairness program** (`reference/casino_fair`, standalone)
 ```bash
-cd programs/casino_fair
+cd reference/casino_fair
 cargo check && cargo test        # 7 host unit tests; SBF build is blocked (§6)
 ```
 
@@ -179,7 +180,7 @@ workspace and NOT built by `anchor build`. Reason: its MagicBlock dependency
 `edition2024`, which the pinned Solana platform-tools Cargo (1.84) cannot build
 for SBF. Excluding it keeps the vault's build, `Cargo.lock`, and CI unchanged.
 
-- It **host-compiles and unit-tests pass** (`cd programs/casino_fair && cargo
+- It **host-compiles and unit-tests pass** (`cd reference/casino_fair && cargo
   test`).
 - It **cannot be SBF-built/deployed** until platform-tools is upgraded. Do not
   add it back to the workspace members or `[programs.*]` on the current

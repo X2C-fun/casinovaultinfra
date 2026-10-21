@@ -1,12 +1,14 @@
 [workspace]
-# `casino_fair` (the MagicBlock-VRF fairness reference) is deliberately NOT a
-# workspace member: its ephemeral-rollups-sdk dependency pulls an edition-2024
-# crate the pinned Solana platform-tools (Cargo 1.84) cannot build for SBF, so
-# including it would break `anchor build`. It is a standalone reference crate —
-# see docs/fairness.md for how to build/test it. Keeping it out of the
-# workspace leaves the vault's build, Cargo.lock, and CI exactly as they were.
+# `casino_fair` (the MagicBlock-VRF fairness reference) lives in `reference/`,
+# NOT `programs/`, and is NOT a workspace member. `anchor build` scans the
+# `programs/` directory and would try to build every program there; casino_fair
+# pulls an edition-2024 crate the pinned Solana platform-tools (Cargo 1.84)
+# cannot build for SBF, which would break `anchor build` for everyone. Keeping
+# it in `reference/` and out of the workspace leaves the vault's build,
+# Cargo.lock, and CI exactly as they were. It is a standalone reference crate —
+# see docs/fairness.md for how to build/test it.
 members = ["programs/casino_vault", "programs/cpi_probe"]
-exclude = ["programs/casino_fair"]
+exclude = ["reference/casino_fair"]
 # Anchor 0.32's manifest parser only understands resolver 1 and 2, so the
 # workspace stays on 2 and `Cargo.lock` is the pin instead.
 #
