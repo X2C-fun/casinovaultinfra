@@ -4,10 +4,11 @@ version = "0.1.0"
 description = "Provably-fair coin-flip reference program: verifiable randomness via MagicBlock VRF with an authenticated settlement callback."
 edition = "2021"
 license = "MIT"
-# rustc version shipped with Solana platform-tools v1.48 (Agave 2.3.x). Kept in
-# sync with the vault so the MSRV-aware resolver never selects a crate the SBF
-# toolchain cannot build.
-rust-version = "1.84.0"
+# rustc shipped with Solana platform-tools v1.48 (Agave 2.3.x) is 1.84.1. The
+# committed Cargo.lock is pinned so no dependency needs a newer rustc or the
+# `edition2024` Cargo feature (wincode 0.4.9 / wincode-derive 0.4.3 need
+# exactly 1.84.1, hence .1 rather than the vault's 1.84.0).
+rust-version = "1.84.1"
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -20,15 +21,32 @@ no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build"]
+# Accept MagicBlock's ephemeral-rollup VRF queue (DEFAULT_EPHEMERAL_QUEUE) in
+# addition to the base-layer DEFAULT_QUEUE. Only useful if the flip account is
+# delegated to an ephemeral rollup, which this program does not do itself.
+ephemeral = []
+# Accept MagicBlock's TEST queues (DEFAULT_TEST_QUEUE, and with `ephemeral`
+# also DEFAULT_EPHEMERAL_TEST_QUEUE). Test oracles may use known keys, which
+# makes outcomes PREDICTABLE: local development only, never for value.
+test-queue = []
 
 [dependencies]
-anchor-lang = { version = "0.32.1", features = ["event-cpi"] }
+# Exact pins (`=`): with a caret requirement `0.32.1` resolves to 0.32.2. The
+# committed Cargo.lock pins every transitive crate as well; build with --locked.
+anchor-lang = { version = "=0.32.1", features = ["event-cpi"] }
 # MagicBlock Ephemeral Rollups SDK. The `vrf` feature re-exports the VRF request
 # builder, the `#[vrf]` / `#[vrf_callback]` macros and the oracle-queue consts,
-# so no direct `ephemeral-vrf-sdk` dependency is needed. The feature MUST be
-# `anchor-compat`, NOT `anchor`: `anchor` targets Anchor 1.x, `anchor-compat`
-# targets Anchor >=0.28,<1.0, and this workspace is pinned to Anchor 0.32.1.
-ephemeral-rollups-sdk = { version = "0.16.2", features = ["anchor-compat", "vrf"] }
+# so no direct `ephemeral-vrf-sdk` dependency is needed (0.17.3 pins
+# `ephemeral-vrf-sdk =0.17.3` itself). The feature MUST be `anchor-compat`, NOT
+# `anchor`: `anchor` targets Anchor 1.x, `anchor-compat` targets Anchor
+# >=0.28,<1.0, and this crate is pinned to Anchor 0.32.1.
+#
+# 0.17.x rather than 0.16.x: 0.16.x pulls `ephemeral-vrf-sdk 0.4.1`, which
+# requires `solana-system-interface ^3.2` (every release needs Rust 1.89), so
+# no 0.16.x lockfile builds on the Rust 1.84 SBF toolchain. 0.17.x relaxes that
+# to `^2.0`; it also passes the system program to the VRF CPI, which the 0.16.x
+# `#[vrf]` helper omitted.
+ephemeral-rollups-sdk = { version = "=0.17.3", features = ["anchor-compat", "vrf"] }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_os, values("solana"))'] }

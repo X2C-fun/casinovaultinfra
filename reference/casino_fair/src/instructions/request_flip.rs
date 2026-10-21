@@ -5,16 +5,15 @@ use anchor_lang::Discriminator;
 
 use ephemeral_rollups_sdk::anchor::vrf;
 use ephemeral_rollups_sdk::vrf::{
-    self,
-    instructions::{create_request_scoped_randomness_ix, RequestRandomnessParams},
+    instructions::{create_request_randomness_ix, RequestRandomnessParams},
     types::SerializableAccountMeta,
 };
 
-use crate::constants::FLIP_SEED;
+use crate::constants::{is_allowed_oracle_queue, FLIP_SEED};
 use crate::errors::FairError;
 use crate::events::FlipRequestedEvent;
-use crate::state::{CoinSide, Flip, FlipStatus};
-use crate::utils::current_timestamp;
+use crate::state::{CoinSide, Flip};
+use crate::utils::{current_slot, current_timestamp};
 
 /// Accounts for [`process_request_flip`].
 ///
@@ -38,70 +37,39 @@ pub struct RequestFlip<'info> {
     )]
     pub flip: Account<'info, Flip>,
 
-    /// CHECK: The VRF oracle queue. Pinned to the recognised queues so a flip
-    /// cannot be pointed at an attacker-controlled queue. `DEFAULT_QUEUE` is the
-    /// base-layer (Solana devnet/mainnet) queue; the others cover the ephemeral
-    /// rollup and localnet.
+    /// CHECK: The VRF oracle queue. Restricted by
+    /// [`is_allowed_oracle_queue`]: only the base-layer `DEFAULT_QUEUE` unless
+    /// the `ephemeral` / `test-queue` cargo features opt in to more.
     #[account(
         mut,
-        constraint = (
-            oracle_queue.key() == vrf::consts::DEFAULT_QUEUE
-                || oracle_queue.key() == vrf::consts::DEFAULT_EPHEMERAL_QUEUE
-                || oracle_queue.key() == vrf::consts::DEFAULT_TEST_QUEUE
-                || oracle_queue.key() == vrf::consts::DEFAULT_EPHEMERAL_TEST_QUEUE
-        ) @ FairError::InvalidOracleQueue,
+        constraint = is_allowed_oracle_queue(&oracle_queue.key()) @ FairError::InvalidOracleQueue,
     )]
     pub oracle_queue: UncheckedAccount<'info>,
 }
 
 /// Records the guess, bumps the round and fires the VRF request.
 ///
-/// Rejects a second request while one is already `Requested`: the VRF lifecycle
-/// is one live request per account, otherwise two callbacks could race over the
-/// same state. The guess and the client seed are committed *before* the request
-/// so the player cannot change their call once randomness is in flight.
-pub fn process_request_flip(
-    ctx: Context<RequestFlip>,
-    client_seed: u8,
-    guess: u8,
-) -> Result<()> {
+/// See [`Flip::begin_request`] for the rules (one live request per account;
+/// guess and seed committed before the CPI).
+pub fn process_request_flip(ctx: Context<RequestFlip>, client_seed: u8, guess: u8) -> Result<()> {
     // Reject anything that is not a coin side rather than coercing it.
     let guess = CoinSide::try_from_guess(guess)?;
+    let slot = current_slot()?;
 
     // Commit the request in its own scope so the mutable borrow of the flip
     // ends before the VRF CPI (which borrows `ctx.accounts` immutably).
     let (round, player, flip_key) = {
         let flip = &mut ctx.accounts.flip;
-        require!(
-            flip.status != FlipStatus::Requested,
-            FairError::RequestInProgress
-        );
-
-        // Bump the round first: the new value is the nonce that binds this
-        // request to exactly one permitted callback.
-        let round = flip.round.checked_add(1).ok_or(FairError::MathOverflow)?;
-        flip.round = round;
-        flip.status = FlipStatus::Requested;
-        flip.client_seed = client_seed;
-        flip.guess = guess;
+        let round = flip.begin_request(client_seed, guess, slot)?;
         (round, flip.player, flip.key())
     };
 
-    // Forward the callback the data it needs to bind itself to THIS request.
-    // `callback_args` is appended after `randomness` as the trailing Borsh
-    // arguments of `callback_flip(randomness, client_seed, round)`, so the bytes
-    // are the Borsh encoding of `(u8, u64)`: one seed byte then the round as 8
-    // little-endian bytes.
-    let mut callback_args = Vec::with_capacity(9);
-    callback_args.push(client_seed);
-    callback_args.extend_from_slice(&round.to_le_bytes());
-
-    let ix = create_request_scoped_randomness_ix(RequestRandomnessParams {
+    let ix = create_request_randomness_ix(RequestRandomnessParams {
         payer: ctx.accounts.payer.key(),
         oracle_queue: ctx.accounts.oracle_queue.key(),
         callback_program_id: crate::ID,
         callback_discriminator: crate::instruction::CallbackFlip::DISCRIMINATOR.to_vec(),
-        // Client entropy folded into the VRF input.
+        // The one client byte, repeated. A request tag, not meaningful entropy.
         caller_seed: [client_seed; 32],
         // The account the callback must receive and write: this flip.
         accounts_metas: Some(vec![SerializableAccountMeta {
@@ -109,8 +77,7 @@ pub fn process_request_flip(
             is_signer: false,
             is_writable: true,
         }]),
-        callback_args: Some(callback_args),
-        ..Default::default()
+        callback_args: Some(encode_callback_args(client_seed, round, slot)),
     });
 
     ctx.accounts
@@ -120,8 +87,48 @@ pub fn process_request_flip(
         player,
         round,
         guess,
+        requested_slot: slot,
         timestamp: current_timestamp()?,
     });
 
     Ok(())
+}
+
+/// The trailing Borsh arguments of
+/// `callback_flip(randomness, client_seed, round, requested_slot)`.
+///
+/// The oracle appends `callback_args` after `randomness`, so the bytes must be
+/// the Borsh encoding of `(u8, u64, u64)`: the seed byte, then the round and
+/// the request slot as little-endian `u64`s. These bind the callback to exactly
+/// this request (see [`Flip::is_awaiting`]).
+pub fn encode_callback_args(client_seed: u8, round: u64, requested_slot: u64) -> Vec<u8> {
+    let mut args = Vec::with_capacity(17);
+    args.push(client_seed);
+    args.extend_from_slice(&round.to_le_bytes());
+    args.extend_from_slice(&requested_slot.to_le_bytes());
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anchor_lang::InstructionData;
+
+    /// The bytes the oracle sends back must decode into exactly the arguments
+    /// `callback_flip` declares, or every callback would fail to deserialize.
+    #[test]
+    fn callback_args_match_the_callback_instruction_encoding() {
+        let randomness = [7u8; 32];
+        let mut oracle_data = crate::instruction::CallbackFlip::DISCRIMINATOR.to_vec();
+        oracle_data.extend_from_slice(&randomness);
+        oracle_data.extend_from_slice(&encode_callback_args(0xAB, 0x0102_0304_0506_0708, 99));
+
+        let expected = crate::instruction::CallbackFlip {
+            randomness,
+            client_seed: 0xAB,
+            round: 0x0102_0304_0506_0708,
+            requested_slot: 99,
+        };
+        assert_eq!(oracle_data, expected.data());
+    }
 }

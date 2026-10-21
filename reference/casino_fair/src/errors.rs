@@ -32,4 +32,18 @@ pub enum FairError {
     /// fail.
     #[msg("Unrecognised VRF oracle queue")]
     InvalidOracleQueue,
+
+    /// `cancel_flip` was called while no request is in flight.
+    #[msg("No randomness request is in flight for this player")]
+    NoRequestInFlight,
+
+    /// `cancel_flip` was called before `CANCEL_TIMEOUT_SLOTS` slots had passed
+    /// since the request. The oracle gets that long to fulfil first.
+    #[msg("The cancel timeout has not elapsed yet")]
+    CancelTooEarly,
+
+    /// `close_flip` was called while a request is in flight. Wait for the
+    /// callback, or cancel after the timeout, then close.
+    #[msg("Cannot close a flip while a randomness request is in flight")]
+    CloseWhileRequested,
 }
