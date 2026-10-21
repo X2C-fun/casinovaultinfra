@@ -43,15 +43,22 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
+    "smoke": "npm run build && node -e \"import('./dist/index.js').then(m=>{if(!m.buildWithdrawTransaction)process.exit(1)})\" && node -e \"const m=require('./dist/index.cjs');if(!m.buildWithdrawTransaction)process.exit(1)\"",
     "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "buffer": "^6.0.3"
   },
   "peerDependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.98.4",
+    "@types/node": "^22.20.5",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",
     "vitest": "^2.1.9"

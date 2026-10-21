@@ -3,11 +3,13 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  VersionedTransaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import type { Program } from "@coral-xyz/anchor";
 import type { CasinoVault } from "./idl/casino_vault";
 import { DEFAULT_PROGRAM_ID } from "./constants";
+import { CASINO_VAULT_IDL } from "./idl";
 import {
   deriveEventAuthorityPda,
   derivePoolVaultPda,
@@ -15,8 +17,15 @@ import {
 } from "./pdas";
 import { buildWithdrawIx } from "./instructions";
 
-/** 8-byte discriminator + u64 amount + u64 request_id. */
+const WITHDRAW_IX = CASINO_VAULT_IDL.instructions.find((ix) => ix.name === "withdraw");
+if (!WITHDRAW_IX) {
+  throw new Error("IDL is missing the withdraw instruction");
+}
+/** Anchor discriminator of `withdraw`, taken from the committed IDL. */
+const WITHDRAW_DISCRIMINATOR = Uint8Array.from(WITHDRAW_IX.discriminator);
+/** 8-byte discriminator + u64 amount + u64 request_id (both little-endian). */
 const WITHDRAW_DATA_LEN = 24;
+const U64_MAX = (1n << 64n) - 1n;
 
 /**
  * Highest priority fee the user may be asked to pay, in lamports. The user is
@@ -24,8 +33,10 @@ const WITHDRAW_DATA_LEN = 24;
  * server would drain the wallet through fees alone.
  */
 export const MAX_PRIORITY_FEE_LAMPORTS = 1_000_000n; // 0.001 SOL
+/** Compute units Solana allows per transaction (the worst case if unset). */
 const MAX_COMPUTE_UNITS = 1_400_000n;
 const MAX_COMPUTE_BUDGET_IXS = 4;
+// ComputeBudget instruction tags (first data byte).
 const CB_REQUEST_HEAP_FRAME = 1;
 const CB_SET_UNIT_LIMIT = 2;
 const CB_SET_UNIT_PRICE = 3;
@@ -42,12 +53,28 @@ function fail(reason: string): never {
   throw new UnsafeWithdrawTxError(reason);
 }
 
+/** Little-endian reads without `Buffer`, which is not a browser global. */
+function view(data: Uint8Array): DataView {
+  return new DataView(data.buffer, data.byteOffset, data.byteLength);
+}
+
+/** Worst-case priority fee in lamports: ceil(price * units / 1e6). */
+function priorityFeeLamports(microLamportsPerUnit: bigint, units: bigint): bigint {
+  return (microLamportsPerUnit * units + 999_999n) / 1_000_000n;
+}
+
 /**
  * Builds the complete withdraw transaction a backend co-signs: optional
  * ComputeBudget instructions followed by exactly one `withdraw`, with `user`
  * as fee payer. Build it yourself and never co-sign a transaction you did not
  * build — a user-built one could wrap `withdraw` in other instructions your
  * settlement logic would not see.
+ *
+ * The builder enforces the same priority-fee ceiling as
+ * {@link assertSafeWithdrawTx}, so it never produces a transaction the client
+ * would refuse: the worst-case fee `ceil(price * (computeUnitLimit ?? 1.4M) / 1e6)`
+ * must not exceed {@link MAX_PRIORITY_FEE_LAMPORTS}, otherwise it throws a
+ * `RangeError`. `computeUnitLimit` is honoured with or without a price.
  *
  * Leaves `recentBlockhash`/`lastValidBlockHeight` unset; set them, then
  * partial-sign with the admin key and return it to the user to sign and submit.
@@ -61,24 +88,42 @@ export async function buildWithdrawTransaction(
     requestId: bigint;
     /** Optional priority fee, in micro-lamports per compute unit. */
     computeUnitPriceMicroLamports?: bigint;
-    /** Compute-unit limit to request alongside a priority fee. */
+    /** Optional compute-unit limit (1 to 1,400,000). Also bounds the priority fee. */
     computeUnitLimit?: number;
   },
 ): Promise<Transaction> {
-  const tx = new Transaction();
-  if (params.computeUnitPriceMicroLamports !== undefined) {
-    if (params.computeUnitLimit !== undefined) {
-      tx.add(
-        ComputeBudgetProgram.setComputeUnitLimit({
-          units: params.computeUnitLimit,
-        }),
+  const { computeUnitLimit, computeUnitPriceMicroLamports: price } = params;
+  if (
+    computeUnitLimit !== undefined &&
+    (!Number.isInteger(computeUnitLimit) ||
+      computeUnitLimit < 1 ||
+      BigInt(computeUnitLimit) > MAX_COMPUTE_UNITS)
+  ) {
+    throw new RangeError(
+      `computeUnitLimit must be an integer from 1 to ${MAX_COMPUTE_UNITS}, got ${computeUnitLimit}`,
+    );
+  }
+  if (price !== undefined) {
+    if (typeof price !== "bigint" || price < 0n || price > U64_MAX) {
+      throw new RangeError("computeUnitPriceMicroLamports must be a u64 bigint");
+    }
+    const units =
+      computeUnitLimit !== undefined ? BigInt(computeUnitLimit) : MAX_COMPUTE_UNITS;
+    const fee = priorityFeeLamports(price, units);
+    if (fee > MAX_PRIORITY_FEE_LAMPORTS) {
+      throw new RangeError(
+        `priority fee of up to ${fee} lamports is above MAX_PRIORITY_FEE_LAMPORTS ` +
+          `(${MAX_PRIORITY_FEE_LAMPORTS}); lower the price or set a smaller computeUnitLimit`,
       );
     }
-    tx.add(
-      ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: params.computeUnitPriceMicroLamports,
-      }),
-    );
+  }
+
+  const tx = new Transaction();
+  if (computeUnitLimit !== undefined) {
+    tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }));
+  }
+  if (price !== undefined) {
+    tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: price }));
   }
   tx.add(
     await buildWithdrawIx(program, {
@@ -107,15 +152,15 @@ function assertComputeBudget(ixs: TransactionInstruction[]): void {
       fail("unexpected instruction before withdraw");
     }
     if (ix.keys.length !== 0) fail("ComputeBudget instruction with accounts");
-    const data = Buffer.from(ix.data);
+    const data = ix.data;
     switch (data[0]) {
       case CB_SET_UNIT_LIMIT:
         if (data.length !== 5) fail("malformed compute unit limit");
-        unitLimit = BigInt(data.readUInt32LE(1));
+        unitLimit = BigInt(view(data).getUint32(1, true));
         break;
       case CB_SET_UNIT_PRICE:
         if (data.length !== 9) fail("malformed compute unit price");
-        microLamportsPerUnit = data.readBigUInt64LE(1);
+        microLamportsPerUnit = view(data).getBigUint64(1, true);
         break;
       case CB_REQUEST_HEAP_FRAME:
       case CB_SET_LOADED_ACCOUNTS_DATA_SIZE:
@@ -126,8 +171,7 @@ function assertComputeBudget(ixs: TransactionInstruction[]): void {
     }
   }
   const units = unitLimit ?? MAX_COMPUTE_UNITS;
-  // Priority fee = ceil(price (micro-lamports per unit) * units / 1e6).
-  const fee = (microLamportsPerUnit * units + 999_999n) / 1_000_000n;
+  const fee = priorityFeeLamports(microLamportsPerUnit, units);
   if (fee > MAX_PRIORITY_FEE_LAMPORTS) {
     fail(
       `priority fee of up to ${fee} lamports is above the allowed ${MAX_PRIORITY_FEE_LAMPORTS}`,
@@ -141,6 +185,22 @@ function assertComputeBudget(ixs: TransactionInstruction[]): void {
  * asked to sign. Call this in the browser on any withdraw transaction a backend
  * hands you. A compromised or misconfigured server could otherwise return a
  * System transfer draining the user, or an extreme priority fee.
+ *
+ * Checks: the fee payer is `user`; only ComputeBudget instructions (at most
+ * four, known kinds, no accounts, worst-case priority fee within
+ * {@link MAX_PRIORITY_FEE_LAMPORTS}) precede a final instruction to
+ * `programId` that carries the `withdraw` discriminator, the expected amount
+ * and request ID, and exactly the expected accounts; the signer set is
+ * exactly `{user, admin}`.
+ *
+ * SECURITY: `programId` (and `expectedAdmin`) must be client-side values — a
+ * constant bundled with your app, or read from chain — NEVER taken from the
+ * server response being checked. A server that picks the program ID can point
+ * the whole check at a program of its own.
+ *
+ * Only legacy `Transaction`s are accepted. A `VersionedTransaction` is
+ * rejected with {@link UnsafeWithdrawTxError}: its address-table lookups cannot
+ * be verified offline.
  */
 export function assertSafeWithdrawTx(
   tx: Transaction,
@@ -149,11 +209,24 @@ export function assertSafeWithdrawTx(
     expectedLamports: bigint;
     expectedRequestId: bigint;
     expectedAdmin: PublicKey | null;
+    /** Client-side constant, never taken from the server. Defaults to DEFAULT_PROGRAM_ID. */
     programId?: PublicKey;
   },
 ): void {
   const { user, expectedLamports, expectedRequestId, expectedAdmin } = opts;
   const programId = opts.programId ?? DEFAULT_PROGRAM_ID;
+
+  const raw = tx as unknown;
+  if (
+    raw === null ||
+    typeof raw !== "object" ||
+    raw instanceof VersionedTransaction ||
+    "version" in raw ||
+    "message" in raw ||
+    !Array.isArray((raw as { instructions?: unknown }).instructions)
+  ) {
+    fail("expected a legacy Transaction; VersionedTransaction is not supported");
+  }
 
   if (!tx.feePayer || !tx.feePayer.equals(user)) {
     fail("fee payer is not your wallet");
@@ -170,11 +243,14 @@ export function assertSafeWithdrawTx(
   if (data.length !== WITHDRAW_DATA_LEN) {
     fail("instruction data has the wrong length");
   }
-  const amount = Buffer.from(data).readBigUInt64LE(8);
+  for (let i = 0; i < WITHDRAW_DISCRIMINATOR.length; i++) {
+    if (data[i] !== WITHDRAW_DISCRIMINATOR[i]) fail("instruction is not withdraw");
+  }
+  const amount = view(data).getBigUint64(8, true);
   if (amount !== expectedLamports) {
     fail(`amount ${amount} lamports does not match the ${expectedLamports} you requested`);
   }
-  const requestId = Buffer.from(data).readBigUInt64LE(16);
+  const requestId = view(data).getBigUint64(16, true);
   if (requestId !== expectedRequestId) {
     fail("request ID does not match the approval");
   }

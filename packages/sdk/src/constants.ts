@@ -1,3 +1,6 @@
+// Explicit import: `Buffer` is not a browser global. Node resolves this to its
+// built-in module; bundlers resolve it to the `buffer` package (a dependency).
+import { Buffer } from "buffer";
 import { PublicKey } from "@solana/web3.js";
 
 /**
@@ -24,5 +27,3 @@ export const EVENT_AUTHORITY_SEED = Buffer.from("__event_authority");
 export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111",
 );
-
-export const LAMPORTS_PER_SOL = 1_000_000_000n;

@@ -1,4 +1,4 @@
-import { BN, type Program } from "@coral-xyz/anchor";
+import { BN, type Program } from "./anchor";
 import {
   PublicKey,
   SystemProgram,
@@ -11,7 +11,34 @@ import {
   deriveVaultStatePda,
 } from "./pdas";
 
-const bn = (v: bigint | number) => new BN(v.toString());
+const U64_MAX = (1n << 64n) - 1n;
+const U32_MAX = 0xffff_ffff;
+
+/**
+ * Converts a u64 argument to a `BN`, rejecting anything outside
+ * `0 ..= 2^64 - 1`. `BN` would otherwise silently encode a negative value as
+ * its magnitude and truncate an oversized one, so `-5n` would move 5 lamports.
+ */
+export function toU64Bn(name: string, value: bigint | number): BN {
+  if (typeof value === "number" && !Number.isSafeInteger(value)) {
+    throw new RangeError(`${name} must be an integer, got ${value}`);
+  }
+  if (typeof value !== "bigint" && typeof value !== "number") {
+    throw new TypeError(`${name} must be a bigint`);
+  }
+  const v = BigInt(value);
+  if (v < 0n || v > U64_MAX) {
+    throw new RangeError(`${name} must be a u64 (0 to 2^64-1), got ${v}`);
+  }
+  return new BN(v.toString());
+}
+
+function toU32(name: string, value: number): number {
+  if (!Number.isInteger(value) || value < 0 || value > U32_MAX) {
+    throw new RangeError(`${name} must be a u32 (0 to 2^32-1), got ${value}`);
+  }
+  return value;
+}
 
 /**
  * `deposit(amount)` — move `amountLamports` from `depositor` into the shared
@@ -26,7 +53,7 @@ export function buildDepositIx(
   const [vaultState] = deriveVaultStatePda(programId);
   const [poolVault] = derivePoolVaultPda(programId);
   return program.methods
-    .deposit(bn(params.amountLamports))
+    .deposit(toU64Bn("amountLamports", params.amountLamports))
     .accountsPartial({
       depositor: params.depositor,
       vaultState,
@@ -53,7 +80,10 @@ export function buildWithdrawIx(
   const [vaultState] = deriveVaultStatePda(programId);
   const [poolVault] = derivePoolVaultPda(programId);
   return program.methods
-    .withdraw(bn(params.amountLamports), bn(params.requestId))
+    .withdraw(
+      toU64Bn("amountLamports", params.amountLamports),
+      toU64Bn("requestId", params.requestId),
+    )
     .accountsPartial({
       user: params.user,
       admin: params.admin,
@@ -151,9 +181,9 @@ export function buildSetLimitsIx(
   const [vaultState] = deriveVaultStatePda(programId);
   return program.methods
     .setLimits(
-      bn(params.maxWithdrawPerTx),
-      bn(params.maxWithdrawPerWindow),
-      params.windowSeconds,
+      toU64Bn("maxWithdrawPerTx", params.maxWithdrawPerTx),
+      toU64Bn("maxWithdrawPerWindow", params.maxWithdrawPerWindow),
+      toU32("windowSeconds", params.windowSeconds),
     )
     .accountsPartial({
       authority: params.authority,

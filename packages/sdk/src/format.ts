@@ -11,13 +11,26 @@ const SOL_DECIMALS = 9;
 // Plain decimal only: no exponent ("1e-7"), sign, hex, or thousands separators.
 const DECIMAL_SOL = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
 
-/** Formats lamports as a human-readable SOL string (2–9 decimals). */
+/**
+ * Formats lamports as a SOL string with 2–9 decimals, e.g. `1.00`, `0.25`,
+ * `0.000000001`. Exact (pure `BigInt`, no float rounding) and
+ * locale-independent: `.` decimal point, no grouping separators. A `number`
+ * must be a safe integer.
+ */
 export function lamportsToSol(lamports: number | bigint): string {
-  const n = Number(lamports) / 1e9;
-  return n.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 9,
-  });
+  if (typeof lamports === "number" && !Number.isSafeInteger(lamports)) {
+    throw new RangeError("lamports must be an integer (use bigint above 2^53)");
+  }
+  let n = BigInt(lamports);
+  const negative = n < 0n;
+  if (negative) n = -n;
+  const whole = n / LAMPORTS_PER_SOL_BIGINT;
+  let frac = (n % LAMPORTS_PER_SOL_BIGINT)
+    .toString()
+    .padStart(SOL_DECIMALS, "0")
+    .replace(/0+$/, "");
+  if (frac.length < 2) frac = frac.padEnd(2, "0");
+  return `${negative ? "-" : ""}${whole}.${frac}`;
 }
 
 /**
@@ -48,8 +61,8 @@ export function solToLamports(sol: string): bigint {
   return lamports;
 }
 
-/** Shortens an address to `abcd…wxyz` for display. */
+/** Shortens an address to `abcdâ€¦wxyz` for display. */
 export function shortAddress(address: string, chars = 4): string {
   if (address.length <= chars * 2 + 3) return address;
-  return `${address.slice(0, chars)}…${address.slice(-chars)}`;
+  return `${address.slice(0, chars)}â€¦${address.slice(-chars)}`;
 }

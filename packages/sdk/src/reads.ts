@@ -1,4 +1,5 @@
-import { BN, type Program } from "@coral-xyz/anchor";
+import type { Program } from "@coral-xyz/anchor";
+import { BN } from "./anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import type { CasinoVault } from "./idl/casino_vault";
 import {
