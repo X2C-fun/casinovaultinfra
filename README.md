@@ -83,6 +83,10 @@ These are devnet-oriented references, not production-hardened or audited — the
 backend's HTTP API ships without auth, and `casino_fair` is a primitive, not a
 game. Read each component's README before building on it.
 
+- **AI coding agents / fast onboarding:** [`AGENTS.md`](AGENTS.md) — the whole
+  protocol, build/test commands, and the rules that keep it correct, in one file.
+- **Publishing the SDK / cutting a release:** [`mia.md`](mia.md).
+
 **Building a backend on this?** Read
 [Backend withdraw flow](docs/backend-integration.md#backend-withdraw-flow) and
 [Known limitations](docs/architecture.md#known-limitations) first.

@@ -1,21 +1,27 @@
 import { PublicKey } from "@solana/web3.js";
+import {
+  DEFAULT_PROGRAM_ID as SDK_DEFAULT_PROGRAM_ID,
+  VAULT_STATE_SEED,
+  POOL_VAULT_SEED,
+  EVENT_AUTHORITY_SEED,
+} from "@x2c-fun/casinovault-sdk";
 
-/** Program ID of this repository's devnet deployment. */
-export const DEFAULT_PROGRAM_ID = "EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7";
+// PDA seeds and the canonical program ID now come from the SDK (single source
+// of truth). The env-based overrides and explorer helpers below are
+// frontend-specific and stay here.
+
+/** Program ID of this repository's devnet deployment (base58). */
+export const DEFAULT_PROGRAM_ID = SDK_DEFAULT_PROGRAM_ID.toBase58();
 
 /** On-chain program ID. Override per deployment with NEXT_PUBLIC_VAULT_PROGRAM_ID. */
-export const PROGRAM_ID = new PublicKey(
-  process.env.NEXT_PUBLIC_VAULT_PROGRAM_ID?.trim() || DEFAULT_PROGRAM_ID,
-);
+export const PROGRAM_ID = process.env.NEXT_PUBLIC_VAULT_PROGRAM_ID?.trim()
+  ? new PublicKey(process.env.NEXT_PUBLIC_VAULT_PROGRAM_ID.trim())
+  : SDK_DEFAULT_PROGRAM_ID;
 
-export const VAULT_STATE_SEED = Buffer.from("vault_state_v2");
-export const POOL_VAULT_SEED = Buffer.from("pool_vault");
-/** Seed of the PDA Anchor's `emit_cpi!` signs with. */
-export const EVENT_AUTHORITY_SEED = Buffer.from("__event_authority");
+export { VAULT_STATE_SEED, POOL_VAULT_SEED, EVENT_AUTHORITY_SEED };
 
 export const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-  "https://api.devnet.solana.com";
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
 
 export const CLUSTER_LABEL =
   process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet";
