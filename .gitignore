@@ -12,8 +12,9 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 
-# Workspace build output, dev-runtime lockfile, and local DBs
+# Workspace build output, dev-runtime lockfile, packed tarballs, and local DBs
 packages/*/dist/
+packages/*/*.tgz
 bun.lock
 bun.lockb
 *.db
