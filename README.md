@@ -65,7 +65,23 @@ To deploy your own copy to devnet, follow [Deployment](docs/deployment.md).
 | [Backend integration](docs/backend-integration.md) | Admin key handling, reads, the safe withdraw flow, listener rules |
 | [Program reference](docs/reference.md) | Instructions, accounts, signers, events, error codes |
 | [Reference frontend](docs/frontend.md) | The Next.js demo app and its environment variables |
+| [Provable fairness (`casino_fair`)](docs/fairness.md) | The MagicBlock-VRF coin-flip reference program and its trust model |
 | [Testing and troubleshooting](docs/testing-and-troubleshooting.md) | Running the tests, common errors and fixes |
+
+## Packages and reference components
+
+Beyond the on-chain program, the repo ships the pieces an integrator needs to
+build a game on the vault:
+
+| Component | Path | What it is |
+| --------- | ---- | ---------- |
+| **TypeScript SDK** | [`packages/sdk`](packages/sdk) | `@x2c-fun/casinovault-sdk` — typed IDL, PDAs, instruction builders, a safe withdraw-tx builder + client assertion, event decoding, and pool reconciliation. Publishable to npm. |
+| **Settlement backend** | [`packages/backend`](packages/backend) | A reference backend implementing [the withdraw flow](docs/backend-integration.md): balance holds, debit-at-approval, a finalized-only event listener, incident pause, and reconciliation (SQLite or in-memory). |
+| **Fairness primitive** | [`programs/casino_fair`](programs/casino_fair) | A provably-fair coin-flip built on MagicBlock VRF — the randomness companion to the vault. See [docs/fairness.md](docs/fairness.md). Built standalone (see that doc). |
+
+These are devnet-oriented references, not production-hardened or audited — the
+backend's HTTP API ships without auth, and `casino_fair` is a primitive, not a
+game. Read each component's README before building on it.
 
 **Building a backend on this?** Read
 [Backend withdraw flow](docs/backend-integration.md#backend-withdraw-flow) and

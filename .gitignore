@@ -12,6 +12,19 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 
+# Workspace build output, dev-runtime lockfile, and local DBs
+packages/*/dist/
+bun.lock
+bun.lockb
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+# casino_fair is a standalone crate; its lock regenerates on build
+programs/casino_fair/Cargo.lock
+# Local dedupe workaround dir (never committed)
+.dup_bak/
+
 # Local keypairs. Never commit a secret key.
 # Recreate the provider wallet with: solana-keygen new -o wallet.json
 wallet.json

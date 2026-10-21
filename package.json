@@ -4,6 +4,9 @@
   "private": true,
   "license": "MIT",
   "description": "Anchor program that holds pooled player SOL for a casino backend, with admin-approved withdrawals.",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "anchor build",
     "test": "anchor test",

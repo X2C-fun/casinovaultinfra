@@ -6,6 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **TypeScript SDK** (`packages/sdk`, `@x2c-fun/casinovault-sdk`): typed IDL, PDA
+  derivation, instruction builders for every instruction, a safe
+  `buildWithdrawTransaction` + `assertSafeWithdrawTx` pair, account reads, event
+  decoding with source-based de-duplication, and the pool-reconciliation
+  invariant. Framework-agnostic and browser-safe (reads no `process.env`). Built
+  ESM + CJS + types; 11 unit tests. Publishable to npm.
+- **Reference settlement backend** (`packages/backend`,
+  `@x2c-fun/casinovault-backend`): implements `docs/backend-integration.md` —
+  balance holds / debit-at-approval, `request_id` matching, a finalized-only
+  event listener that skips `meta.err`, incident pause on an unmatched
+  `WithdrawEvent`, expiry release, and a reconciliation job. SQLite (durable) or
+  in-memory ledger; minimal HTTP API (unauthenticated — add your own auth). 8
+  unit tests covering the double-spend defense and settlement state machine.
+- **Provable-fairness primitive** (`programs/casino_fair`, program ID
+  `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`): a minimal coin-flip built on
+  MagicBlock VRF (`#[vrf]` request + `#[vrf_callback]` authenticated callback),
+  with an idempotent, round-bound settlement. See `docs/fairness.md`. Host unit
+  tests pass (7); it is a **standalone crate**, excluded from the Cargo
+  workspace and `anchor build` so the vault's build and CI are unchanged.
+
+### Known limitations
+
+- `casino_fair` **cannot be SBF-built on the pinned toolchain**: a transitive
+  MagicBlock dependency (`crypto-common 0.2.2`) requires Rust `edition2024`,
+  which the pinned Solana platform-tools Cargo (1.84) cannot parse. Deploying it
+  needs newer platform-tools; see `docs/fairness.md`.
+- The backend HTTP API has no authentication; the SDK, backend and fairness
+  program are devnet-oriented references and are not audited.
+
 ## [0.2.0] - 2026-10-19
 
 Program v0.2: guarded `initialize`, two-step admin rotation, `request_id` on

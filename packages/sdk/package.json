@@ -1,0 +1,54 @@
+{
+  "name": "@x2c-fun/casinovault-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Casino Vault Solana program: typed IDL, PDAs, instruction builders, a safe withdraw-transaction builder, event decoding, and pool reconciliation.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/X2C-fun/casinovaultinfra.git",
+    "directory": "packages/sdk"
+  },
+  "keywords": [
+    "solana",
+    "anchor",
+    "casino",
+    "vault",
+    "sdk",
+    "web3"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.98.4"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.9"
+  }
+}
