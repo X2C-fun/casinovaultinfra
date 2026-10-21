@@ -82,32 +82,43 @@ node -e "const s=require('@x2c-fun/casinovault-sdk'); console.log('ok:', s.solTo
 
 ---
 
-## 4. Refresh the frontend and backend to use the published SDK
+## 4. Install the backend against the published SDK (optional)
 
-The frontend already declares `@x2c-fun/casinovault-sdk: ^0.1.0`. Now that it is
-on npm, install it:
-
-```bash
-cd ../../casinovault-frontend
-npm install                      # resolves the SDK from npm, updates package-lock.json
-npm run build                    # Next.js production build — should pass
-```
-
-The backend uses the SDK via the workspace link (`workspace:*`); no change
-needed. From the repo root:
+The backend declares `@x2c-fun/casinovault-sdk: ^0.1.0`. Once the SDK is on npm:
 
 ```bash
-cd ..
-npm install                      # root npm workspace links packages/*
-npm --workspace @x2c-fun/casinovault-backend test   # 8 tests
+cd packages/backend
+npm install          # resolves the SDK from npm
+npm test             # 8 tests
 ```
+
+(Before the SDK is published, link it locally instead: `npm install && npm install ../sdk`.)
 
 ---
 
 ## 5. Merge the PR
 
-Once the SDK is published and the frontend build is green, merge
+Once the SDK is published and the backend installs cleanly, merge
 [PR #27](https://github.com/X2C-fun/casinovaultinfra/pull/27) into `main`.
+
+---
+
+## 6. Later (post-publish): point the demo frontend at the SDK
+
+The `casinovault-frontend` demo still uses its own copies of the client helpers
+(`src/lib/*`). Wiring it to the published SDK is a small, **separate** follow-up
+— it is intentionally **not** in this PR because:
+
+1. The frontend cannot depend on `@x2c-fun/casinovault-sdk` until it is on npm
+   (CI runs `npm ci`, which would 404 on an unpublished package).
+2. The CI "Committed IDL matches build output" check diffs the frontend's own
+   `src/idl/casino_vault.ts` against the build. Routing the frontend's IDL
+   through the SDK means that CI check must be updated to diff the **SDK's** IDL
+   instead.
+
+Do it as its own PR after the SDK is published: add the SDK dependency, turn
+`src/lib/*` into thin re-exports of the SDK, and update the CI IDL-diff step.
+Everything works today without this — it is pure de-duplication.
 
 ---
 

@@ -26,7 +26,7 @@ import {
 import { BN, Program } from "@coral-xyz/anchor";
 import bs58 from "bs58";
 
-import type { CasinoVault } from "@x2c-fun/casinovault-sdk";
+import type { CasinoVault } from "@/idl/casino_vault";
 import { PROGRAM_ID, SOLANA_RPC } from "@/lib/constants";
 import { solToLamports } from "@/lib/format";
 import { derivePoolVaultPda, deriveVaultStatePda } from "@/lib/pdas";

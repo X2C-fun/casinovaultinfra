@@ -4,9 +4,6 @@
   "private": true,
   "license": "MIT",
   "description": "Anchor program that holds pooled player SOL for a casino backend, with admin-approved withdrawals.",
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
     "build": "anchor build",
     "test": "anchor test",
@@ -22,12 +19,9 @@
     "set-limits": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/set_limits.ts",
     "lint": "prettier --check \"tests/**/*.ts\" \"scripts/**/*.ts\"",
     "lint:fix": "prettier --write \"tests/**/*.ts\" \"scripts/**/*.ts\"",
-    "sdk:build": "npm --workspace @x2c-fun/casinovault-sdk run build",
-    "sdk:test": "npm --workspace @x2c-fun/casinovault-sdk test",
-    "backend:test": "npm --workspace @x2c-fun/casinovault-backend test",
-    "packages:build": "npm --workspace @x2c-fun/casinovault-sdk run build",
-    "packages:test": "npm --workspace @x2c-fun/casinovault-sdk test && npm --workspace @x2c-fun/casinovault-backend test",
-    "packages:typecheck": "npm --workspace @x2c-fun/casinovault-sdk run typecheck && npm --workspace @x2c-fun/casinovault-backend run typecheck"
+    "sdk:build": "cd packages/sdk && npm run build",
+    "sdk:test": "cd packages/sdk && npm test",
+    "backend:test": "cd packages/backend && npm test"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

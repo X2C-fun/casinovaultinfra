@@ -39,7 +39,7 @@ programs/
 packages/
   sdk/               # @x2c-fun/casinovault-sdk  (publishable)
   backend/           # @x2c-fun/casinovault-backend  (reference, unauthenticated)
-casinovault-frontend/# Next.js demo app (uses the SDK)
+casinovault-frontend/# Next.js demo app (self-contained; SDK wiring is a post-publish step)
 scripts/             # admin/ops TS scripts (initialize, deposit, withdraw, ...)
 tests/               # vault integration tests (anchor test)
 docs/                # the real documentation (read these)
@@ -77,8 +77,10 @@ claim to be, trustless or provably solvent on-chain.
 ## 4. Build & test — exact commands
 
 Node 20+, Rust + Solana 2.3.13 + Anchor 0.32.1 for the program. `npm` is the
-package manager (the repo ships `package-lock.json`); the root is an npm
-workspace (`packages/*`).
+package manager (the repo ships `package-lock.json`). The `packages/*` are
+**standalone** — install and test each in its own directory. (The root is NOT
+an npm workspace: that would require regenerating the root `package-lock.json`,
+and CI runs `npm ci` against the committed lock.)
 
 **Vault program**
 ```bash
@@ -97,10 +99,13 @@ npm install && npm run build && npm test && npm run typecheck   # 11 tests
 
 **Backend** (`packages/backend`)
 ```bash
-npm --workspace @x2c-fun/casinovault-backend test        # 8 tests, no chain needed
-npm --workspace @x2c-fun/casinovault-backend run typecheck
-# run it (needs env): cp packages/backend/.env.example packages/backend/.env
-npm --workspace @x2c-fun/casinovault-backend run start   # API + listener
+cd packages/backend
+npm install                       # needs the published SDK; before publish, link it:
+                                  #   npm install && npm install ../sdk   (file link)
+npm test                          # 8 tests, no chain needed
+npm run typecheck
+cp .env.example .env              # then run it (needs ADMIN_SECRET_KEY + RPC):
+npm run start                     # API + listener
 ```
 
 **Fairness program** (`programs/casino_fair`, standalone)

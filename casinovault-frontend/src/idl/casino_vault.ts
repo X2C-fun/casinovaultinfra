@@ -1,6 +1,1471 @@
 /**
- * The vault IDL type now lives in the SDK (single source of truth). This file
- * is kept as a re-export so any lingering `@/idl/casino_vault` import keeps
- * working; prefer importing `CasinoVault` from `@x2c-fun/casinovault-sdk`.
+ * Program IDL in camelCase format in order to be used in JS/TS.
+ *
+ * Note that this is only a type helper and is not the actual IDL. The original
+ * IDL can be found at `target/idl/casino_vault.json`.
  */
-export type { CasinoVault } from "@x2c-fun/casinovault-sdk";
+export type CasinoVault = {
+  "address": "EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7",
+  "metadata": {
+    "name": "casinoVault",
+    "version": "0.2.0",
+    "spec": "0.1.0",
+    "description": "Pooled SOL custody program: holds player funds for a casino backend, with admin-approved withdrawals."
+  },
+  "instructions": [
+    {
+      "name": "acceptAdmin",
+      "docs": [
+        "Completes an admin transfer. Signed by the pending admin."
+      ],
+      "discriminator": [
+        112,
+        42,
+        45,
+        90,
+        116,
+        181,
+        13,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "newAdmin",
+          "docs": [
+            "The pending admin, proving it controls the proposed key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "deposit",
+      "docs": [
+        "Moves `amount` lamports from the signer's wallet into the pool vault."
+      ],
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "depositor",
+          "docs": [
+            "Source of the lamports and the key the backend will credit.",
+            "",
+            "Anyone may deposit: players fund their balance this way and the house",
+            "tops up the bankroll the same way. The signer is what identifies the",
+            "depositor, so the backend can never be tricked into crediting somebody",
+            "else."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vaultState",
+          "docs": [
+            "Singleton state PDA. Read to enforce the pause switch."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "poolVault",
+          "docs": [
+            "Singleton pool vault, verified against the bump recorded at",
+            "initialization."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Creates the singleton vault state, registering the signing admin as the",
+        "withdrawal authority. Only the upgrade authority may call it, and only",
+        "once per deployment."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The program's upgrade authority. Only this key can initialize, so a",
+            "third party watching the deploy cannot front-run `initialize` and",
+            "become admin. Pays the rent for the state account and any pool vault",
+            "shortfall."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Backend authority being registered. It must sign, so nobody can",
+            "register an admin key they do not control. May be the same key as",
+            "`authority`, though keeping them separate is recommended."
+          ],
+          "signer": true
+        },
+        {
+          "name": "programData",
+          "docs": [
+            "This program's program data account, which records the upgrade",
+            "authority. The seed check ties it to this program ID."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  200,
+                  245,
+                  16,
+                  232,
+                  125,
+                  198,
+                  109,
+                  75,
+                  172,
+                  221,
+                  110,
+                  208,
+                  168,
+                  104,
+                  41,
+                  96,
+                  3,
+                  155,
+                  239,
+                  99,
+                  172,
+                  254,
+                  202,
+                  162,
+                  188,
+                  163,
+                  16,
+                  7,
+                  149,
+                  36,
+                  136,
+                  80
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultState",
+          "docs": [
+            "Singleton state PDA, `[\"vault_state_v2\"]`. `init` makes this",
+            "instruction run exactly once for the lifetime of the program."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "poolVault",
+          "docs": [
+            "Singleton pool vault PDA, `[\"pool_vault\"]`. Stays system-owned and",
+            "data-less so the System Program can move lamports out of it under its",
+            "seed."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "proposeAdmin",
+      "docs": [
+        "Proposes a new admin (`None` cancels). Upgrade authority only."
+      ],
+      "discriminator": [
+        121,
+        214,
+        199,
+        212,
+        87,
+        39,
+        117,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The program's upgrade authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "programData",
+          "docs": [
+            "This program's program data account, proving `authority`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  200,
+                  245,
+                  16,
+                  232,
+                  125,
+                  198,
+                  109,
+                  75,
+                  172,
+                  221,
+                  110,
+                  208,
+                  168,
+                  104,
+                  41,
+                  96,
+                  3,
+                  155,
+                  239,
+                  99,
+                  172,
+                  254,
+                  202,
+                  162,
+                  188,
+                  163,
+                  16,
+                  7,
+                  149,
+                  36,
+                  136,
+                  80
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "newAdmin",
+          "type": {
+            "option": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "setLimits",
+      "docs": [
+        "Sets the withdrawal caps; `0` disables a cap. Upgrade authority only."
+      ],
+      "discriminator": [
+        207,
+        50,
+        250,
+        67,
+        211,
+        33,
+        70,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The program's upgrade authority."
+          ],
+          "signer": true
+        },
+        {
+          "name": "programData",
+          "docs": [
+            "This program's program data account, proving `authority`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  200,
+                  245,
+                  16,
+                  232,
+                  125,
+                  198,
+                  109,
+                  75,
+                  172,
+                  221,
+                  110,
+                  208,
+                  168,
+                  104,
+                  41,
+                  96,
+                  3,
+                  155,
+                  239,
+                  99,
+                  172,
+                  254,
+                  202,
+                  162,
+                  188,
+                  163,
+                  16,
+                  7,
+                  149,
+                  36,
+                  136,
+                  80
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          }
+        },
+        {
+          "name": "vaultState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "maxWithdrawPerTx",
+          "type": "u64"
+        },
+        {
+          "name": "maxWithdrawPerWindow",
+          "type": "u64"
+        },
+        {
+          "name": "windowSeconds",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "setPaused",
+      "docs": [
+        "Suspends or resumes deposits and withdrawals. Admin only."
+      ],
+      "discriminator": [
+        91,
+        60,
+        125,
+        192,
+        176,
+        225,
+        166,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Backend authority. Only the registered admin may flip the switch."
+          ],
+          "signer": true,
+          "relations": [
+            "vaultState"
+          ]
+        },
+        {
+          "name": "vaultState",
+          "docs": [
+            "Singleton state PDA holding the flag."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "docs": [
+        "Releases `amount` lamports from the pool vault to the signing user.",
+        "Requires the admin's signature. `request_id` is echoed in",
+        "`WithdrawEvent`."
+      ],
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "docs": [
+            "Recipient of the funds.",
+            "",
+            "The destination is this signer and nothing else: there is no address",
+            "parameter, so a stolen admin key cannot redirect a payout. The user's",
+            "signature also proves the payout was requested by the account holder."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Backend authority. Its signature is the on-chain proof that the",
+            "off-chain balance, limit and anti-cheat checks passed. A user's",
+            "signature alone is never sufficient."
+          ],
+          "signer": true,
+          "relations": [
+            "vaultState"
+          ]
+        },
+        {
+          "name": "vaultState",
+          "docs": [
+            "Singleton state PDA. Pins the admin, enforces the pause switch, and",
+            "tracks the withdrawal window (hence writable)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "poolVault",
+          "docs": [
+            "Singleton pool vault. Signs the outgoing transfer through its seed and",
+            "the bump stored in `vault_state`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "requestId",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "vaultState",
+      "discriminator": [
+        228,
+        196,
+        82,
+        165,
+        98,
+        210,
+        235,
+        152
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "adminChangedEvent",
+      "discriminator": [
+        172,
+        190,
+        41,
+        86,
+        23,
+        187,
+        232,
+        84
+      ]
+    },
+    {
+      "name": "adminProposedEvent",
+      "discriminator": [
+        212,
+        163,
+        91,
+        28,
+        223,
+        95,
+        2,
+        102
+      ]
+    },
+    {
+      "name": "depositEvent",
+      "discriminator": [
+        120,
+        248,
+        61,
+        83,
+        31,
+        142,
+        107,
+        144
+      ]
+    },
+    {
+      "name": "limitsUpdatedEvent",
+      "discriminator": [
+        244,
+        137,
+        204,
+        15,
+        213,
+        180,
+        183,
+        234
+      ]
+    },
+    {
+      "name": "pauseStateChangedEvent",
+      "discriminator": [
+        142,
+        29,
+        26,
+        107,
+        147,
+        150,
+        52,
+        254
+      ]
+    },
+    {
+      "name": "vaultInitializedEvent",
+      "discriminator": [
+        203,
+        214,
+        91,
+        5,
+        185,
+        248,
+        192,
+        149
+      ]
+    },
+    {
+      "name": "withdrawEvent",
+      "discriminator": [
+        22,
+        9,
+        133,
+        26,
+        160,
+        44,
+        71,
+        192
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "unauthorized",
+      "msg": "Unauthorized: signer is not the registered admin"
+    },
+    {
+      "code": 6001,
+      "name": "invalidAmount",
+      "msg": "Invalid amount: value must be greater than zero"
+    },
+    {
+      "code": 6002,
+      "name": "insufficientFunds",
+      "msg": "Insufficient funds for the requested transfer"
+    },
+    {
+      "code": 6003,
+      "name": "vaultAlreadyInitialized",
+      "msg": "The vault has already been initialized"
+    },
+    {
+      "code": 6004,
+      "name": "mathOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6005,
+      "name": "vaultPaused",
+      "msg": "The vault is paused"
+    },
+    {
+      "code": 6006,
+      "name": "cpiNotAllowed",
+      "msg": "Deposits and withdrawals must be top-level instructions, not CPI"
+    },
+    {
+      "code": 6007,
+      "name": "notUpgradeAuthority",
+      "msg": "Unauthorized: signer is not the program upgrade authority"
+    },
+    {
+      "code": 6008,
+      "name": "notPendingAdmin",
+      "msg": "Signer is not the pending admin"
+    },
+    {
+      "code": 6009,
+      "name": "invalidAdmin",
+      "msg": "Invalid admin public key"
+    },
+    {
+      "code": 6010,
+      "name": "invalidLimits",
+      "msg": "Invalid withdrawal limits"
+    },
+    {
+      "code": 6011,
+      "name": "withdrawLimitExceeded",
+      "msg": "Withdrawal exceeds the per-transaction limit"
+    },
+    {
+      "code": 6012,
+      "name": "windowLimitExceeded",
+      "msg": "Withdrawal exceeds the limit for the current window"
+    }
+  ],
+  "types": [
+    {
+      "name": "adminChangedEvent",
+      "docs": [
+        "Emitted when the pending admin accepts and becomes the admin."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "previousAdmin",
+            "docs": [
+              "Admin that was replaced."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "newAdmin",
+            "docs": [
+              "Admin now in force."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "adminProposedEvent",
+      "docs": [
+        "Emitted when the upgrade authority proposes (or cancels) an admin change."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Upgrade authority that made the proposal."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "currentAdmin",
+            "docs": [
+              "Admin in force when the proposal was made."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pendingAdmin",
+            "docs": [
+              "Proposed admin; `None` cancels a pending proposal."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "depositEvent",
+      "docs": [
+        "Emitted when SOL enters the pool, whether from a player or from the house."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "docs": [
+              "Wallet that signed and funded the deposit. The backend credits this key."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Lamports moved into the pool vault."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vaultBalance",
+            "docs": [
+              "Pool vault lamports after the deposit, rent reserve included."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "limitsUpdatedEvent",
+      "docs": [
+        "Emitted when the upgrade authority changes the withdrawal caps."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Upgrade authority that made the change."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "maxWithdrawPerTx",
+            "docs": [
+              "New per-transaction cap in lamports (`0` = none)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "maxWithdrawPerWindow",
+            "docs": [
+              "New per-window cap in lamports (`0` = none)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "windowSeconds",
+            "docs": [
+              "New window length in seconds."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot; the new window starts here."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pauseStateChangedEvent",
+      "docs": [
+        "Emitted whenever the admin flips the pause switch."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "Admin authority that made the change."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "New value of the switch: `true` means deposits and withdrawals are",
+              "rejected."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "vaultInitializedEvent",
+      "docs": [
+        "Emitted once, when the vault state is created."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Upgrade authority that ran `initialize`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Backend authority registered as admin."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vaultBump",
+            "docs": [
+              "Canonical bump of the pool vault PDA."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "rentReserve",
+            "docs": [
+              "Lamports parked in the pool vault to keep it rent exempt. These are not",
+              "player funds and must not be credited to anybody."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vaultBalance",
+            "docs": [
+              "Pool vault lamports after initialization. Non-zero beyond the reserve",
+              "when the pool already held funds (e.g. after upgrading from v0.1)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "vaultState",
+      "docs": [
+        "Global program configuration, stored at the singleton PDA",
+        "`[\"vault_state_v2\"]`.",
+        "",
+        "There is no per-user state and no balance field. Every lamport sits in one",
+        "shared pool vault, and who owns how much of it is the backend's business."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "Backend authority that must co-sign every withdrawal and is the only",
+              "key allowed to pause the program."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vaultBump",
+            "docs": [
+              "Canonical bump of the pool vault PDA (`[\"pool_vault\"]`). Persisted so",
+              "that CPI signing never has to re-derive it, and never accepts a",
+              "caller-supplied bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "Emergency switch. While set, deposits and withdrawals are both",
+              "rejected."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "pendingAdmin",
+            "docs": [
+              "Admin proposed by the upgrade authority, waiting to sign",
+              "`accept_admin`. `None` when no transfer is in progress."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "maxWithdrawPerTx",
+            "docs": [
+              "Largest single withdrawal in lamports. `0` disables the cap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "maxWithdrawPerWindow",
+            "docs": [
+              "Largest total withdrawn within one window, in lamports. `0` disables",
+              "the cap."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "windowSeconds",
+            "docs": [
+              "Window length in seconds. `0` exactly when `max_withdraw_per_window`",
+              "is `0`."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "windowStart",
+            "docs": [
+              "Unix timestamp at which the current window started."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "windowWithdrawn",
+            "docs": [
+              "Lamports withdrawn since `window_start`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Zeroed space for future fields, so they can be added without a",
+              "reallocation."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "withdrawEvent",
+      "docs": [
+        "Emitted when the backend releases funds from the pool."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "docs": [
+              "Wallet that received the lamports. The backend debits this key."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Admin authority that approved the withdrawal."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "requestId",
+            "docs": [
+              "Backend withdrawal ID passed to `withdraw`, so the listener can settle",
+              "the matching hold without guessing by amount."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Lamports moved out of the pool vault."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vaultBalance",
+            "docs": [
+              "Pool vault lamports after the withdrawal, rent reserve included."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ]
+};

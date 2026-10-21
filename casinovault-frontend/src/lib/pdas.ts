@@ -1,28 +1,25 @@
 import { PublicKey } from "@solana/web3.js";
 import {
-  deriveVaultStatePda as sdkVaultStatePda,
-  derivePoolVaultPda as sdkPoolVaultPda,
-  deriveEventAuthorityPda as sdkEventAuthorityPda,
-} from "@x2c-fun/casinovault-sdk";
-import { PROGRAM_ID } from "./constants";
-
-// Thin wrappers over the SDK derivers that default to this app's configured
-// PROGRAM_ID (which honours NEXT_PUBLIC_VAULT_PROGRAM_ID).
+  EVENT_AUTHORITY_SEED,
+  POOL_VAULT_SEED,
+  PROGRAM_ID,
+  VAULT_STATE_SEED,
+} from "./constants";
 
 export function deriveVaultStatePda(
   programId: PublicKey = PROGRAM_ID,
 ): [PublicKey, number] {
-  return sdkVaultStatePda(programId);
+  return PublicKey.findProgramAddressSync([VAULT_STATE_SEED], programId);
 }
 
 export function derivePoolVaultPda(
   programId: PublicKey = PROGRAM_ID,
 ): [PublicKey, number] {
-  return sdkPoolVaultPda(programId);
+  return PublicKey.findProgramAddressSync([POOL_VAULT_SEED], programId);
 }
 
 export function deriveEventAuthorityPda(
   programId: PublicKey = PROGRAM_ID,
 ): [PublicKey, number] {
-  return sdkEventAuthorityPda(programId);
+  return PublicKey.findProgramAddressSync([EVENT_AUTHORITY_SEED], programId);
 }

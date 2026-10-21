@@ -6,11 +6,15 @@ import {
 } from "@solana/web3.js";
 import type { AnchorWallet } from "@solana/wallet-adapter-react";
 
-import { loadVaultIdl, type CasinoVault } from "@x2c-fun/casinovault-sdk";
+import idl from "@/idl/casino_vault.json";
+import type { CasinoVault } from "@/idl/casino_vault";
 import { PROGRAM_ID, SOLANA_RPC } from "./constants";
 
-/** The IDL from the SDK, pointed at this app's configured PROGRAM_ID. */
-export const VAULT_IDL: CasinoVault = loadVaultIdl(PROGRAM_ID);
+/** The committed IDL, pointed at the configured PROGRAM_ID. */
+export const VAULT_IDL: CasinoVault = {
+  ...(idl as CasinoVault),
+  address: PROGRAM_ID.toBase58() as CasinoVault["address"],
+};
 
 const confirmOptions: ConfirmOptions = {
   commitment: "confirmed",
