@@ -104,6 +104,8 @@ jobs:
           diff <(jq -S . target/idl/casino_vault.json) \
                <(jq -S . casinovault-frontend/src/idl/casino_vault.json)
           diff target/types/casino_vault.ts casinovault-frontend/src/idl/casino_vault.ts
+          diff <(jq -S . target/idl/casino_vault.json)                <(jq -S . packages/sdk/src/idl/casino_vault.json)
+          diff target/types/casino_vault.ts packages/sdk/src/idl/casino_vault.ts
 
       - name: Typecheck scripts and tests
         run: npx tsc --noEmit -p .
@@ -135,3 +137,59 @@ jobs:
       - run: npx next build --webpack
       - name: Production dependency audit (critical only)
         run: npm audit --omit=dev --audit-level=critical
+
+  packages:
+    name: Packages (SDK + backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            packages/sdk/package-lock.json
+            packages/backend/package-lock.json
+      - name: Use npm ${{ env.NPM_VERSION }}
+        run: npm install -g npm@${NPM_VERSION} && npm --version
+
+      # The backend depends on the SDK by path, so the SDK is built first.
+      - name: SDK
+        working-directory: packages/sdk
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          npm test
+          npm run smoke
+          npm pack --dry-run
+      - name: Backend
+        working-directory: packages/backend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+  casino_fair:
+    name: casino_fair (clippy + host tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reference/casino_fair
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: reference/casino_fair
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: clippy (ephemeral + test-queue features)
+        run: cargo clippy --locked --all-targets --features ephemeral,test-queue -- -D warnings
+      - name: test
+        run: cargo test --locked

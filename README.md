@@ -66,6 +66,7 @@ To deploy your own copy to devnet, follow [Deployment](docs/deployment.md).
 | [Program reference](docs/reference.md) | Instructions, accounts, signers, events, error codes |
 | [Reference frontend](docs/frontend.md) | The Next.js demo app and its environment variables |
 | [Provable fairness (`casino_fair`)](docs/fairness.md) | The MagicBlock-VRF coin-flip reference program and its trust model |
+| [Releasing the SDK](docs/releasing.md) | Publishing `@x2c-fun/casinovault-sdk` to npm |
 | [Testing and troubleshooting](docs/testing-and-troubleshooting.md) | Running the tests, common errors and fixes |
 
 ## Packages and reference components
@@ -76,16 +77,16 @@ build a game on the vault:
 | Component | Path | What it is |
 | --------- | ---- | ---------- |
 | **TypeScript SDK** | [`packages/sdk`](packages/sdk) | `@x2c-fun/casinovault-sdk` — typed IDL, PDAs, instruction builders, a safe withdraw-tx builder + client assertion, event decoding, and pool reconciliation. Publishable to npm. |
-| **Settlement backend** | [`packages/backend`](packages/backend) | A reference backend implementing [the withdraw flow](docs/backend-integration.md): balance holds, debit-at-approval, a finalized-only event listener, incident pause, and reconciliation (SQLite or in-memory). |
-| **Fairness primitive** | [`reference/casino_fair`](reference/casino_fair) | A provably-fair coin-flip built on MagicBlock VRF — the randomness companion to the vault. See [docs/fairness.md](docs/fairness.md). Built standalone (see that doc). |
+| **Settlement backend** | [`packages/backend`](packages/backend) | A reference backend implementing [the withdraw flow](docs/backend-integration.md): balance holds, debit-at-approval, a finalized-only event listener, an incident kill-switch and pause, and reconciliation (SQLite). Private; not published. |
+| **Fairness primitive** | [`reference/casino_fair`](reference/casino_fair) | A provably-fair coin flip built on MagicBlock VRF. See [docs/fairness.md](docs/fairness.md). Built standalone with its own `Cargo.lock`. |
 
-These are devnet-oriented references, not production-hardened or audited — the
-backend's HTTP API ships without auth, and `casino_fair` is a primitive, not a
-game. Read each component's README before building on it.
+These are devnet references, not production-hardened or audited. The backend's
+API token is a placeholder for real player authentication, and `casino_fair`
+is a primitive, not a game. Read each component's README before building on it.
 
 - **AI coding agents / fast onboarding:** [`AGENTS.md`](AGENTS.md) — the whole
   protocol, build/test commands, and the rules that keep it correct, in one file.
-- **Publishing the SDK / cutting a release:** [`mia.md`](mia.md).
+- **Publishing the SDK:** [Releasing the SDK](docs/releasing.md).
 
 **Building a backend on this?** Read
 [Backend withdraw flow](docs/backend-integration.md#backend-withdraw-flow) and

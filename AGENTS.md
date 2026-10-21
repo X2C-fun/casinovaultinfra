@@ -39,13 +39,12 @@ reference/
   casino_fair/       # VRF coin-flip reference — STANDALONE crate, NOT in programs/ (see §6)
 packages/
   sdk/               # @x2c-fun/casinovault-sdk  (publishable)
-  backend/           # @x2c-fun/casinovault-backend  (reference, unauthenticated)
+  backend/           # @x2c-fun/casinovault-backend  (private reference; not published)
 casinovault-frontend/# Next.js demo app (self-contained; SDK wiring is a post-publish step)
 scripts/             # admin/ops TS scripts (initialize, deposit, withdraw, ...)
 tests/               # vault integration tests (anchor test)
 docs/                # the real documentation (read these)
 Anchor.toml Cargo.toml package.json   # workspace config
-mia.md               # the publish/release runbook
 ```
 
 Docs worth reading before a change: [`docs/architecture.md`](docs/architecture.md)
@@ -66,8 +65,9 @@ Three keys, kept separate on purpose:
   multisig. Runs `initialize`, `propose_admin`, `set_limits`.
 - **Admin** (`VaultState.admin`) — co-signs **every** withdrawal and is the only
   key that can pause. Lives hot in the backend. A withdrawal pays only the
-  signing `user`, so a stolen admin key alone cannot redirect funds, but it can
-  pay the capped amount per window until rotated.
+  signing `user`, so a stolen admin key cannot take a player's signature, but
+  it can sign as both user and admin and pay itself up to the caps, window
+  after window, until rotated.
 - **User wallets** — sign their own deposits and receive their own withdrawals.
 
 Everything here is **operator-trusted** (custodial). It is not, and does not
@@ -77,7 +77,7 @@ claim to be, trustless or provably solvent on-chain.
 
 ## 4. Build & test — exact commands
 
-Node 20+, Rust + Solana 2.3.13 + Anchor 0.32.1 for the program. `npm` is the
+Node 22 and npm 11 (as CI), Rust + Solana 2.3.13 + Anchor 0.32.1 for the program. `npm` is the
 package manager (the repo ships `package-lock.json`). The `packages/*` are
 **standalone** — install and test each in its own directory. (The root is NOT
 an npm workspace: that would require regenerating the root `package-lock.json`,
@@ -95,24 +95,21 @@ npm run read | deposit | withdraw | initialize | set-limits | set-paused | propo
 **SDK** (`packages/sdk`)
 ```bash
 cd packages/sdk
-npm install && npm run build && npm test && npm run typecheck   # 11 tests
+npm ci && npm run typecheck && npm run build && npm test && npm run smoke
 ```
 
-**Backend** (`packages/backend`)
+**Backend** (`packages/backend`, depends on the SDK by path: build the SDK first)
 ```bash
 cd packages/backend
-npm install                       # needs the published SDK; before publish, link it:
-                                  #   npm install && npm install ../sdk   (file link)
-npm test                          # 8 tests, no chain needed
-npm run typecheck
-cp .env.example .env              # then run it (needs ADMIN_SECRET_KEY + RPC):
-npm run start                     # API + listener
+npm ci && npm run typecheck && npm test    # no chain needed
+cp .env.example .env              # then set ADMIN_SECRET_KEY, RPC_URL, API_TOKEN, ...
+npm run start                     # API + listener (or `npm run api` + `npm run listener`)
 ```
 
-**Fairness program** (`reference/casino_fair`, standalone)
+**Fairness program** (`reference/casino_fair`, standalone, own `Cargo.lock`)
 ```bash
-cd reference/casino_fair
-cargo check && cargo test        # 7 host unit tests; SBF build is blocked (§6)
+cargo test --manifest-path reference/casino_fair/Cargo.toml --locked
+cargo build-sbf --manifest-path reference/casino_fair/Cargo.toml --tools-version v1.48 -- --locked
 ```
 
 **Frontend**
@@ -121,7 +118,7 @@ cd casinovault-frontend
 npm install && npm run build
 ```
 
-Publishing is a separate, human-run step — see [`mia.md`](mia.md).
+Publishing the SDK is a separate, human-run step: see [`docs/releasing.md`](docs/releasing.md).
 
 ---
 
@@ -148,7 +145,7 @@ and fails only at runtime or on-chain.
   by amount alone.
 - **Credit/settle only from FINALIZED transactions**, and **skip any with
   `meta.err`** — a failed tx still carries its events in the logs.
-- **De-duplicate events by source** (`signature:ixIndex:eventIndex`), never by
+- **Consume one event source and de-duplicate by position** (`vaultEventKey`: `signature:source:ixIndex:eventIndex`), never by
   content. Identical deposits produce identical payloads.
 - An **unmatched `WithdrawEvent`** (unknown/mismatched `request_id`) is the
   leaked-admin-key shape → **pause the vault and alert** before anything else.
@@ -172,19 +169,21 @@ and fails only at runtime or on-chain.
 
 ---
 
-## 6. The `casino_fair` toolchain limitation (important)
+## 6. The `casino_fair` lockfile (important)
 
-`casino_fair` is a **standalone crate**: it is NOT a member of the Cargo
-workspace and NOT built by `anchor build`. Reason: its MagicBlock dependency
-(`ephemeral-rollups-sdk` → … → `crypto-common 0.2.2`) requires Rust
-`edition2024`, which the pinned Solana platform-tools Cargo (1.84) cannot build
-for SBF. Excluding it keeps the vault's build, `Cargo.lock`, and CI unchanged.
+`casino_fair` is a **standalone crate** with its own committed
+`reference/casino_fair/Cargo.lock`. It is not a member of the Cargo workspace
+and not built by `anchor build`.
 
-- It **host-compiles and unit-tests pass** (`cd reference/casino_fair && cargo
-  test`).
-- It **cannot be SBF-built/deployed** until platform-tools is upgraded. Do not
-  add it back to the workspace members or `[programs.*]` on the current
-  toolchain — that re-breaks `anchor build`. Full detail: `docs/fairness.md`.
+- Its MagicBlock dependency tree only builds for SBF on the pinned
+  platform-tools (rustc 1.84.1) because that lock holds transitive crates at
+  releases without `edition2024` and within rustc 1.84.1. **Never run a plain
+  `cargo update` there**; change pins one crate at a time with
+  `cargo update -p <crate> --precise <version>` and rebuild with
+  `cargo build-sbf ... -- --locked`.
+- CI runs its fmt, clippy and host tests. Adding it to the workspace would
+  merge its lock into the vault's; don't, unless both build from one lock.
+  Full detail: `docs/fairness.md`.
 
 ---
 
@@ -198,11 +197,12 @@ for SBF. Excluding it keeps the vault's build, `Cargo.lock`, and CI unchanged.
 - **Add an SDK helper:** implement in `packages/sdk/src/`, export from `index.ts`,
   add a unit test in `src/sdk.test.ts`, `npm run build && npm test`.
 - **Change backend balance logic:** edit `packages/backend/src/ledger/` (keep the
-  `Ledger` interface synchronous — the hold check must be atomic), update both
-  `memory.ts` and `sqlite.ts`, and extend `test/ledger.test.ts`.
+  `Ledger` interface synchronous and each event's seen-marking and effect in one
+  transaction), update both `memory.ts` and `sqlite.ts` (shared rules live in
+  `settle-rules.ts`), and extend `test/ledger.test.ts`, which runs on both.
 - **Change the event listener:** `packages/backend/src/services/settlement.ts`
-  (the pure core `applyParsedEvents` is unit-tested) and
-  `packages/backend/src/listener/`.
+  (`applyVaultEvents`) and `packages/backend/src/listener/`; extend
+  `test/listener.test.ts` (fake Connection, no chain).
 
 ---
 
@@ -213,4 +213,4 @@ for SBF. Excluding it keeps the vault's build, `Cargo.lock`, and CI unchanged.
 - No secret committed; `Cargo.lock` still `version = 3` if you touched Rust deps.
 - Docs updated if behaviour or interface changed; `CHANGELOG.md` gets an
   `Unreleased` entry.
-- You did not silently re-enable `casino_fair` in the workspace / `anchor build`.
+- You did not move `casino_fair` into the workspace / `anchor build`, or run a plain `cargo update` on its lock.

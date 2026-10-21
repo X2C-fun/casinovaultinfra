@@ -8,34 +8,65 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **TypeScript SDK** (`packages/sdk`, `@x2c-fun/casinovault-sdk`): typed IDL, PDA
-  derivation, instruction builders for every instruction, a safe
-  `buildWithdrawTransaction` + `assertSafeWithdrawTx` pair, account reads, event
-  decoding with source-based de-duplication, and the pool-reconciliation
-  invariant. Framework-agnostic and browser-safe (reads no `process.env`). Built
-  ESM + CJS + types; 11 unit tests. Publishable to npm.
-- **Reference settlement backend** (`packages/backend`,
-  `@x2c-fun/casinovault-backend`): implements `docs/backend-integration.md` —
-  balance holds / debit-at-approval, `request_id` matching, a finalized-only
-  event listener that skips `meta.err`, incident pause on an unmatched
-  `WithdrawEvent`, expiry release, and a reconciliation job. SQLite (durable) or
-  in-memory ledger; minimal HTTP API (unauthenticated — add your own auth). 8
-  unit tests covering the double-spend defense and settlement state machine.
+- **TypeScript SDK** (`packages/sdk`, `@x2c-fun/casinovault-sdk` 0.1.0, not yet
+  published): the v0.2.0 IDL and types, PDAs, builders for every instruction
+  (u64 arguments range-checked), account reads, pool reconciliation, and:
+  - `buildWithdrawTransaction` and `assertSafeWithdrawTx`, the same pre-sign
+    check as the frontend (`withdraw` discriminator, amount, `request_id`,
+    user, fee payer, every account, ComputeBudget instructions with the
+    priority fee capped at 0.001 SOL). The builder refuses what the check would
+    reject, and the check rejects versioned transactions.
+  - `decodeVaultTransactionEvents`, which reads one event source (the
+    `emit_cpi!` copies by default, which log truncation cannot drop), returns
+    nothing for a failed transaction, throws when the RPC response is missing
+    data or an event can't be decoded, and gives each event a position for
+    `vaultEventKey`.
+  - ESM and CommonJS builds that load in plain Node, and no reliance on Node
+    globals in the browser.
+- **Reference settlement backend** (`packages/backend`, private): implements
+  `docs/backend-integration.md` on SQLite.
+  - Approval debits a hold before signing; the destination must be the owner's
+    wallet; request IDs are random u64s.
+  - The HTTP API requires a bearer token, binds to localhost by default, and
+    takes no house withdrawals. Those go through an operator CLI and can only
+    pay the admin wallet.
+  - The listener reads finalized transactions page by page, oldest first, keys
+    events with `vaultEventKey`, applies each event and its de-duplication in
+    one database transaction, and stops without moving its cursor when the RPC
+    is missing data. A listener lease keeps it to one per database.
+  - Any withdrawal that doesn't match its hold (wrong user, amount or
+    signature, a replayed `request_id`, an undecodable event, or an unknown
+    cursor) opens a durable kill-switch that blocks approvals and hold
+    releases, and pauses the vault, retrying until it is paused.
+  - Holds are released only after the listener has caught up and the
+    blockhash has expired.
 - **Provable-fairness primitive** (`reference/casino_fair`, program ID
-  `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`): a minimal coin-flip built on
-  MagicBlock VRF (`#[vrf]` request + `#[vrf_callback]` authenticated callback),
-  with an idempotent, round-bound settlement. See `docs/fairness.md`. Host unit
-  tests pass (7); it is a **standalone crate**, excluded from the Cargo
-  workspace and `anchor build` so the vault's build and CI are unchanged.
+  `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`, not deployed): a minimal coin
+  flip on MagicBlock VRF (`ephemeral-rollups-sdk` 0.17.3). The callback is
+  authenticated by the VRF program's identity and settles at most once, bound
+  to the round, seed and request slot. The player can `cancel_flip` after 150
+  slots and `close_flip` when nothing is in flight. Only the base-layer VRF
+  queue is accepted unless the `ephemeral` or `test-queue` feature is on. It
+  is a standalone crate with its own pinned `Cargo.lock`, outside the Cargo
+  workspace and `anchor build`, and builds for SBF on the pinned toolchain.
+- `AGENTS.md`, an orientation guide for coding agents, and
+  [Releasing the SDK](docs/releasing.md).
+- CI jobs for the SDK and backend (typecheck, build, tests, a load check of
+  both module formats) and for `casino_fair` (fmt, clippy, host tests), plus a
+  check that the SDK's IDL matches the build. Dependabot covers both packages.
 
 ### Known limitations
 
-- `casino_fair` **cannot be SBF-built on the pinned toolchain**: a transitive
-  MagicBlock dependency (`crypto-common 0.2.2`) requires Rust `edition2024`,
-  which the pinned Solana platform-tools Cargo (1.84) cannot parse. Deploying it
-  needs newer platform-tools; see `docs/fairness.md`.
-- The backend HTTP API has no authentication; the SDK, backend and fairness
-  program are devnet-oriented references and are not audited.
+- None of the new components is audited. The backend's API token stands in for
+  real player authentication: a deployment must take the player from its own
+  session, never from the request body.
+- `casino_fair`'s oracle can predict an outcome and withhold it (it cannot bias
+  it), and `cancel_flip` is a re-roll vector for anything staked on a flip;
+  see `docs/fairness.md`. Its VRF request and callback are not covered by
+  tests, since they need the live VRF program.
+- `casino_fair` builds for SBF only from its committed `Cargo.lock`, which
+  holds transitive crates at releases the pinned toolchain supports. Do not run
+  a plain `cargo update` on it.
 
 ## [0.2.0] - 2026-10-19
 
