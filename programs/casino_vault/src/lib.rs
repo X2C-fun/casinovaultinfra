@@ -28,11 +28,11 @@
 //! | `set_limits`    | upgrade authority                         |
 //!
 //! Anyone may pay into the pool. Money only leaves it when *both* the recipient
-//! and the admin sign, and it can only go to the signing recipient — the
-//! destination is not a parameter, so a stolen admin key cannot redirect a
-//! payout on its own. The upgrade authority (which should be cold storage or a
-//! multisig) controls who the admin is and how much can leave per transaction
-//! and per time window.
+//! and the admin sign, and only to the signing recipient (there is no destination
+//! parameter), so a stolen admin key cannot take a player's payout. It can still
+//! sign as user and admin and pay itself, up to the caps; with no caps (as right
+//! after `initialize`) that is the whole pool above rent. The upgrade authority
+//! (cold storage or a multisig) controls who the admin is and sets the caps.
 
 use anchor_lang::prelude::*;
 

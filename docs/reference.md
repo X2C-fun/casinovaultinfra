@@ -33,7 +33,9 @@ Accounts: `authority` (signer, payer — must be the upgrade authority), `admin`
 (signer), `program_data`, `vault_state`, `pool_vault`, `system_program`
 
 ```bash
-ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./wallet.json ADMIN_WALLET=./keys/admin.json npm run initialize
+# Caps as for set-limits; the vault starts paused. `--no-limits` / `--unpaused` opt out.
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./wallet.json ADMIN_WALLET=./keys/admin.json \
+npm run initialize -- 1 5 3600
 ```
 
 ```ts
@@ -46,7 +48,10 @@ await program.methods
 
 One-shot setup. Fails with `NotUpgradeAuthority` (6007) for any other signer and
 "already in use" if already initialized. Tops the pool up to the rent reserve
-only if it holds less. Emits `VaultInitializedEvent`.
+only if it holds less. Emits `VaultInitializedEvent`. The instruction itself
+leaves the vault unpaused with no caps; `npm run initialize` therefore adds
+`set_limits` and `set_paused(true)` to the same transaction (the example
+above), and so should any other client.
 
 ### `deposit` — fund the pool
 

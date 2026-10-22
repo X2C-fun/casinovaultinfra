@@ -20,14 +20,9 @@ import {
   lamportsToSol,
   loadProgram,
   loadProvider,
-  parseU64,
+  parseLimits,
   sendWithRetry,
-  solToLamports,
 } from "./common";
-
-function capLamports(arg: string): bigint {
-  return /^0*(\.0*)?$/.test(arg.trim()) ? BigInt(0) : solToLamports(arg);
-}
 
 async function main() {
   const [perTxArg, perWindowArg, windowArg] = process.argv.slice(2);
@@ -38,19 +33,14 @@ async function main() {
     process.exit(1);
   }
 
-  const perTx = capLamports(perTxArg);
-  const perWindow = capLamports(perWindowArg);
-  const windowSeconds = parseU64(windowArg, "window_seconds");
-  if (windowSeconds > BigInt(0xffffffff)) {
-    console.error("window_seconds must fit in a u32.");
+  let limits: ReturnType<typeof parseLimits>;
+  try {
+    limits = parseLimits(perTxArg, perWindowArg, windowArg);
+  } catch (err) {
+    console.error((err as Error).message);
     process.exit(1);
   }
-  if ((perWindow === BigInt(0)) !== (windowSeconds === BigInt(0))) {
-    console.error(
-      "max_per_window and window_seconds must both be 0 or both be non-zero.",
-    );
-    process.exit(1);
-  }
+  const { perTx, perWindow, windowSeconds } = limits;
 
   const provider = loadProvider();
   const program = loadProgram(provider);
@@ -74,7 +64,7 @@ async function main() {
         .setLimits(
           new BN(perTx.toString()),
           new BN(perWindow.toString()),
-          Number(windowSeconds),
+          windowSeconds,
         )
         .accountsPartial({ authority, vaultState })
         .transaction(),

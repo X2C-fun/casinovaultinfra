@@ -116,7 +116,7 @@ events are also emitted with `emit_cpi!`. What remains:
 | ---------- | ------ | ---------- |
 | Upgrade authority is all-powerful | It can ship new code that moves every lamport. | Multisig (e.g. Squads) with a timelock, or `--final` once stable. Immutable programs cannot rotate admins or change caps. |
 | `request_id` is not enforced unique | Two approvals with the same ID both succeed on-chain. | Uniqueness belongs to the backend's hold table (primary key). |
-| Admin can unpause | A leaked admin can undo a pause. | Rotate the admin (one transaction) instead of relying on pause alone. |
+| Admin can unpause | A leaked admin can undo a pause. | Rotate the admin (one transaction) instead of relying on pause alone. The upgrade authority cannot pause, but can freeze withdrawals in one transaction with a 1-lamport per-transaction cap (see [Incident response](backend-integration.md#incident-response)). |
 | Direct transfers emit nothing | SOL sent to the pool with a System transfer has no `DepositEvent`. | Never credit from balance changes; reconcile (Mainnet checklist). |
 | Not audited | — | Get an independent audit before holding mainnet funds. |
 | Admin must be a keypair | `deposit` and `withdraw` must be top-level instructions, so a multisig (e.g. Squads) or PDA admin, which signs through CPI, cannot approve withdrawals. `set_paused` still works from a multisig. | Keep the admin in an HSM/KMS or signer service; use a multisig for the upgrade authority. |
