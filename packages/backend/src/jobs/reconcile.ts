@@ -1,12 +1,10 @@
 import { Connection } from "@solana/web3.js";
-import {
-  fetchVaultState,
-  getReadonlyProgram,
-  reconcilePoolLive,
-} from "@x2c-fun/casinovault-sdk";
+import { fetchVaultState, getReadonlyProgram } from "@x2c-fun/casinovault-sdk";
+import { checkPoolSolvency, ledgerLiabilities } from "../services/solvency";
 import { loadConfig } from "../config";
 import { createStorage } from "../storage";
 import { safeErrorMessage } from "../admin";
+import { verifyLedgerBinding } from "../binding";
 
 /**
  * One-shot reconciliation: checks the pool-solvency invariant
@@ -25,24 +23,18 @@ import { safeErrorMessage } from "../admin";
  */
 async function main(): Promise<void> {
   const config = loadConfig();
-  const extra = process.env.HOUSE_BANKROLL_LAMPORTS?.trim() || "0";
-  if (!/^\d+$/.test(extra)) {
-    throw new Error("HOUSE_BANKROLL_LAMPORTS must be a non-negative integer");
-  }
   const connection = new Connection(config.rpcUrl, { commitment: "finalized" });
   // Read-only, and the file must already exist: a wrong DB_PATH must fail,
   // not silently create an empty ledger that "reconciles" to zero liabilities.
   const storage = await createStorage(config, { readOnly: true });
   try {
-    const totals = storage.ledger.totals();
-    const house = storage.ledger.houseBalance();
-    const playerBalancesTotal = totals.available + totals.pending;
-    const houseBankroll = house.available + house.pending + BigInt(extra);
-
-    const result = await reconcilePoolLive(connection, {
-      playerBalancesTotal,
-      houseBankroll,
-      programId: config.programId,
+    // Compare only (read-only DB): refuse a ledger from another cluster/program.
+    await verifyLedgerBinding(storage.ledger, connection, config.programId, { readOnly: true });
+    // Same math as the listener's release gate (src/services/solvency.ts).
+    const extra = config.houseBankrollLamports ?? 0n;
+    const { playerBalancesTotal, houseBankroll } = ledgerLiabilities(storage.ledger, extra);
+    const result = await checkPoolSolvency(connection, storage.ledger, config.programId, {
+      extraHouseLamports: extra,
     });
     const state = await fetchVaultState(
       getReadonlyProgram(connection, config.programId),

@@ -1,5 +1,6 @@
 import {
   type Balance,
+  type ChainBinding,
   type Hold,
   type IncidentRecord,
   type IncidentState,
@@ -34,7 +35,7 @@ function cloneState(s: State): State {
     house: { ...s.house },
     incident: s.incident ? { ...s.incident } : null,
     incidents: [...s.incidents],
-    progress: { ...s.progress },
+    progress: { ...s.progress, slotSignatures: [...s.progress.slotSignatures] },
   };
 }
 
@@ -56,7 +57,7 @@ export class MemoryLedger implements Ledger {
     house: { available: 0n, pending: 0n },
     incident: null,
     incidents: [],
-    progress: { cursor: null, slot: null, drainedThroughBlockHeight: null },
+    progress: { cursor: null, slot: null, drainedThroughBlockHeight: null, slotSignatures: [] },
   };
   private readonly adminKey?: string;
   private readonly nextId: () => bigint;
@@ -325,7 +326,7 @@ export class MemoryLedger implements Ledger {
   }
 
   getProgress(): ListenerProgress {
-    return { ...this.s.progress };
+    return { ...this.s.progress, slotSignatures: [...this.s.progress.slotSignatures] };
   }
 
   getCursor(): string | null {
@@ -333,12 +334,28 @@ export class MemoryLedger implements Ledger {
   }
 
   setCursor(signature: string, slot?: number): void {
-    this.s.progress.cursor = signature;
-    if (slot !== undefined) this.s.progress.slot = slot;
+    const p = this.s.progress;
+    if (slot !== undefined && slot === p.slot) {
+      if (!p.slotSignatures.includes(signature)) p.slotSignatures.push(signature);
+    } else {
+      p.slotSignatures = [signature];
+    }
+    p.cursor = signature;
+    if (slot !== undefined) p.slot = slot;
   }
 
   setDrainedThroughBlockHeight(height: number): void {
     this.s.progress.drainedThroughBlockHeight = height;
+  }
+
+  private binding: ChainBinding | null = null;
+
+  getChainBinding(): ChainBinding | null {
+    return this.binding ? { ...this.binding } : null;
+  }
+
+  setChainBinding(binding: ChainBinding): void {
+    this.binding = { ...binding };
   }
 
   private lease: { holder: string; expiresAt: number } | null = null;

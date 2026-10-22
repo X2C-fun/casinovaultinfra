@@ -187,6 +187,12 @@ export async function approveWithdrawal(
   if (req.destination !== undefined && req.destination !== req.ownerKey) {
     throw new ApprovalError("destination_mismatch", 400, "destination must be your own wallet");
   }
+  // The admin wallet's balance is the HOUSE bankroll (admin deposits are
+  // routed there), and a player hold for the admin key would be settled
+  // against the wrong book. House payouts go through `npm run house-withdraw`.
+  if (owner.equals(ctx.admin.publicKey)) {
+    throw new ApprovalError("admin_owner", 400, "the admin wallet cannot withdraw through this API");
+  }
 
   const { hold, tx, lastValidBlockHeight } = await prepare(ctx, {
     destination: owner,

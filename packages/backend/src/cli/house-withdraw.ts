@@ -2,6 +2,7 @@ import { loadConfig, requireAdminSecret } from "../config";
 import { loadAdminKeypair, assertAdminMatchesOnChain, safeErrorMessage } from "../admin";
 import { createStorage } from "../storage";
 import { buildContext } from "../context";
+import { verifyLedgerBinding } from "../binding";
 import { prepareHouseWithdrawal } from "../services/withdraw";
 
 /**
@@ -22,9 +23,13 @@ async function main(): Promise<void> {
   const amount = BigInt(arg);
   const config = loadConfig();
   const admin = loadAdminKeypair(requireAdminSecret());
-  const storage = await createStorage(config, { adminKey: admin.publicKey.toBase58() });
+  const storage = await createStorage(config, {
+    adminKey: admin.publicKey.toBase58(),
+    mustExist: true, // a mistyped DB_PATH must not create an empty ledger
+  });
   try {
     const ctx = buildContext(config, admin, storage.ledger);
+    await verifyLedgerBinding(storage.ledger, ctx.connection, config.programId);
     await assertAdminMatchesOnChain(ctx.connection, config.programId, admin.publicKey);
 
     const { hold, tx } = await prepareHouseWithdrawal(ctx, amount);

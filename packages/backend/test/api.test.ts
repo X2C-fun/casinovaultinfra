@@ -124,6 +124,17 @@ describe.each(LEDGERS)("approveWithdrawal (%s)", (_name, make) => {
     expect(ledger.listOpenHolds()).toHaveLength(0);
   });
 
+  it("refuses owner === the admin wallet (its balance is the house bankroll)", async () => {
+    const ledger = make();
+    const ctx = makeCtx(ledger);
+    const adminKey = ctx.admin.publicKey.toBase58();
+    fund(ledger, adminKey, 5_000_000n);
+    await expect(
+      approveWithdrawal(ctx, { ownerKey: adminKey, amountLamports: 1_000_000n }),
+    ).rejects.toMatchObject({ code: "admin_owner", status: 400 });
+    expect(ledger.listOpenHolds()).toHaveLength(0);
+  });
+
   it("refuses every approval while the kill-switch is set", async () => {
     const ledger = make();
     const ctx = makeCtx(ledger);

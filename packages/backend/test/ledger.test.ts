@@ -154,10 +154,16 @@ describe.each(LEDGERS)("%s — balances and holds", (_name, make) => {
 
   it("persists listener progress", () => {
     const l = make();
-    expect(l.getProgress()).toEqual({ cursor: null, slot: null, drainedThroughBlockHeight: null });
+    expect(l.getProgress()).toEqual({ cursor: null, slot: null, drainedThroughBlockHeight: null, slotSignatures: [] });
     l.setCursor("sigX", 42);
     l.setDrainedThroughBlockHeight(777);
-    expect(l.getProgress()).toEqual({ cursor: "sigX", slot: 42, drainedThroughBlockHeight: 777 });
+    expect(l.getProgress()).toEqual({ cursor: "sigX", slot: 42, drainedThroughBlockHeight: 777, slotSignatures: ["sigX"] });
+    // Same slot: the processed set grows (no duplicates); a new slot restarts it.
+    l.setCursor("sigY", 42);
+    l.setCursor("sigY", 42);
+    expect(l.getProgress()).toMatchObject({ cursor: "sigY", slot: 42, slotSignatures: ["sigX", "sigY"] });
+    l.setCursor("sigZ", 43);
+    expect(l.getProgress()).toMatchObject({ cursor: "sigZ", slot: 43, slotSignatures: ["sigZ"] });
   });
 });
 

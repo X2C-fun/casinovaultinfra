@@ -18,11 +18,14 @@ export interface Storage {
  * `adminKey` (base58) routes admin-wallet deposits to the house bankroll and is
  * the only destination a house withdrawal may pay. `readOnly` (SQLite only)
  * opens an existing ledger without write access and fails if the file is
- * missing.
+ * missing. `mustExist` (SQLite only) opens writable but also fails on a
+ * missing file (operator CLIs: a mistyped DB_PATH must not create a ledger).
+ *
+ * Callers then run `verifyLedgerBinding` (src/binding.ts) before using it.
  */
 export async function createStorage(
   config: Config,
-  opts: { adminKey?: string; readOnly?: boolean } = {},
+  opts: { adminKey?: string; readOnly?: boolean; mustExist?: boolean } = {},
 ): Promise<Storage> {
   if (config.ledger === "memory") {
     const ledger = new MemoryLedger({ adminKey: opts.adminKey });
@@ -33,6 +36,7 @@ export async function createStorage(
   const ledger = new SqliteLedger(config.dbPath, {
     adminKey: opts.adminKey,
     readOnly: opts.readOnly,
+    fileMustExist: opts.mustExist,
   });
   return { ledger, close: () => ledger.close() };
 }

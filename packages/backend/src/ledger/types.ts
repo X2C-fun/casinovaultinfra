@@ -89,10 +89,27 @@ export interface ListenerProgress {
   /** Slot of that transaction. */
   slot: number | null;
   /**
+   * Every signature already processed in the cursor's slot (the cursor
+   * included). The order of transactions inside one slot can differ between
+   * RPC nodes, so the listener skips exactly these and processes any other
+   * signature of that slot it is shown.
+   */
+  slotSignatures: string[];
+  /**
    * Finalized block height measured at the start of the newest cycle that
    * drained the backlog completely (see listener.ts for why this is safe).
    */
   drainedThroughBlockHeight: number | null;
+}
+
+/**
+ * The cluster and program a ledger belongs to. Stored on first open; every
+ * process refuses to run against a ledger bound to a different cluster
+ * (genesis hash) or program id (see src/binding.ts).
+ */
+export interface ChainBinding {
+  genesisHash: string;
+  programId: string;
 }
 
 export interface LedgerOptions {
@@ -204,9 +221,19 @@ export interface Ledger {
   // --- listener progress ------------------------------------------------------
   getProgress(): ListenerProgress;
   getCursor(): string | null;
-  /** Advances the cursor to a fully processed signature (and its slot). */
+  /**
+   * Advances the cursor to a fully processed signature (and its slot), and
+   * records it in `slotSignatures`: added when `slot` equals the current
+   * cursor slot, otherwise the list restarts with it. One atomic write.
+   */
   setCursor(signature: string, slot?: number): void;
   setDrainedThroughBlockHeight(height: number): void;
+
+  // --- cluster / program binding ----------------------------------------------
+  /** The binding stored on first open, or null for a ledger never bound. */
+  getChainBinding(): ChainBinding | null;
+  /** Stores the binding (first open only; see src/binding.ts). */
+  setChainBinding(binding: ChainBinding): void;
 
   // --- listener lease ---------------------------------------------------------
   /**

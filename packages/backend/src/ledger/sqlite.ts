@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import {
   type Balance,
+  type ChainBinding,
   type Hold,
   type HoldStatus,
   type IncidentRecord,
@@ -49,7 +50,7 @@ export class SqliteLedger implements Ledger {
    */
   constructor(
     path = "casinovault.db",
-    opts: LedgerOptions & { readOnly?: boolean } = {},
+    opts: LedgerOptions & { readOnly?: boolean; fileMustExist?: boolean } = {},
   ) {
     this.adminKey = opts.adminKey;
     this.nextId = opts.requestIdGenerator ?? randomRequestId;
@@ -64,7 +65,9 @@ export class SqliteLedger implements Ledger {
       }
       return;
     }
-    this.db = new Database(path);
+    // `fileMustExist`: operator CLIs must not create an empty ledger on a
+    // mistyped DB_PATH.
+    this.db = new Database(path, { fileMustExist: opts.fileMustExist ?? false });
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.db.pragma("busy_timeout = 5000");
@@ -456,10 +459,12 @@ export class SqliteLedger implements Ledger {
   getProgress(): ListenerProgress {
     const slot = this.getMeta("listener_slot");
     const drained = this.getMeta("drained_through_block_height");
+    const sigs = this.getMeta("listener_slot_signatures");
     return {
       cursor: this.getMeta("listener_cursor"),
       slot: slot === null ? null : Number(slot),
       drainedThroughBlockHeight: drained === null ? null : Number(drained),
+      slotSignatures: sigs === null ? [] : (JSON.parse(sigs) as string[]),
     };
   }
 
@@ -469,13 +474,35 @@ export class SqliteLedger implements Ledger {
 
   setCursor(signature: string, slot?: number): void {
     this.db.transaction(() => {
+      const current = this.getMeta("listener_slot");
+      let sigs: string[] = [signature];
+      if (slot !== undefined && current !== null && Number(current) === slot) {
+        const prev = JSON.parse(this.getMeta("listener_slot_signatures") ?? "[]") as string[];
+        sigs = prev.includes(signature) ? prev : [...prev, signature];
+      }
       this.setMeta("listener_cursor", signature);
+      this.setMeta("listener_slot_signatures", JSON.stringify(sigs));
       if (slot !== undefined) this.setMeta("listener_slot", String(slot));
     }).immediate();
   }
 
   setDrainedThroughBlockHeight(height: number): void {
     this.setMeta("drained_through_block_height", String(height));
+  }
+
+  // --- cluster / program binding ----------------------------------------------
+
+  getChainBinding(): ChainBinding | null {
+    const genesisHash = this.getMeta("chain_genesis_hash");
+    const programId = this.getMeta("chain_program_id");
+    return genesisHash !== null && programId !== null ? { genesisHash, programId } : null;
+  }
+
+  setChainBinding(binding: ChainBinding): void {
+    this.db.transaction(() => {
+      this.setMeta("chain_genesis_hash", binding.genesisHash);
+      this.setMeta("chain_program_id", binding.programId);
+    }).immediate();
   }
 
   // --- listener lease (lock row: holder id + heartbeat expiry) -----------------

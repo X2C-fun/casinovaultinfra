@@ -53,9 +53,40 @@ describe("config", () => {
     expect(loadApiAuthConfig({ API_TOKEN: "x".repeat(32), HOST: "0.0.0.0" }).apiToken).toBeTruthy();
   });
 
+  it("validates COMPUTE_UNIT_LIMIT (1..1,400,000) and the priority fee bound at startup", () => {
+    expect(loadConfig({ COMPUTE_UNIT_LIMIT: "60000" }).computeUnitLimit).toBe(60_000);
+    expect(loadConfig({ COMPUTE_UNIT_LIMIT: "1400000" }).computeUnitLimit).toBe(1_400_000);
+    expect(() => loadConfig({ COMPUTE_UNIT_LIMIT: "0" })).toThrow(/COMPUTE_UNIT_LIMIT/);
+    expect(() => loadConfig({ COMPUTE_UNIT_LIMIT: "1400001" })).toThrow(/COMPUTE_UNIT_LIMIT/);
+    // ceil(price * limit / 1e6) must stay <= MAX_PRIORITY_FEE_LAMPORTS (1,000,000).
+    expect(loadConfig({ COMPUTE_UNIT_PRICE_MICRO_LAMPORTS: "714285" }).computeUnitPriceMicroLamports).toBe(714_285n);
+    expect(() => loadConfig({ COMPUTE_UNIT_PRICE_MICRO_LAMPORTS: "714286" })).toThrow(/MAX_PRIORITY_FEE_LAMPORTS/);
+    expect(
+      loadConfig({ COMPUTE_UNIT_PRICE_MICRO_LAMPORTS: "5000000", COMPUTE_UNIT_LIMIT: "200000" })
+        .computeUnitPriceMicroLamports,
+    ).toBe(5_000_000n);
+    expect(() =>
+      loadConfig({ COMPUTE_UNIT_PRICE_MICRO_LAMPORTS: "5000001", COMPUTE_UNIT_LIMIT: "200000" }),
+    ).toThrow(/MAX_PRIORITY_FEE_LAMPORTS/);
+    expect(() => loadConfig({ COMPUTE_UNIT_PRICE_MICRO_LAMPORTS: "18446744073709551616" })).toThrow(/u64/);
+  });
+
+  it(".env.example's UPGRADE_SLOT example is the canonical devnet upgrade slot", () => {
+    const example = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
+    expect(example).toMatch(/^# UPGRADE_SLOT=512813387 /m);
+  });
+
   it("reads LISTENER_MAX_BACKLOG", () => {
     expect(loadConfig({ LISTENER_MAX_BACKLOG: "50000" }).listenerMaxBacklog).toBe(50000);
     expect(loadConfig({}).listenerMaxBacklog).toBeUndefined();
+    expect(loadConfig({ LISTENER_MAX_BACKLOG: "1000" }).listenerMaxBacklog).toBe(1000);
+    expect(() => loadConfig({ LISTENER_MAX_BACKLOG: "0" })).toThrow(/at least 1000/);
+    expect(() => loadConfig({ LISTENER_MAX_BACKLOG: "999" })).toThrow(/at least 1000/);
+    expect(loadConfig({ LISTENER_NOT_FOUND_INCIDENT_CYCLES: "3" }).listenerNotFoundIncidentCycles).toBe(3);
+    expect(() => loadConfig({ LISTENER_NOT_FOUND_INCIDENT_CYCLES: "0" })).toThrow(/at least 1/);
+    expect(loadConfig({}).houseBankrollLamports).toBe(0n);
+    expect(loadConfig({ HOUSE_BANKROLL_LAMPORTS: "123" }).houseBankrollLamports).toBe(123n);
+    expect(() => loadConfig({ HOUSE_BANKROLL_LAMPORTS: "-1" })).toThrow(/HOUSE_BANKROLL_LAMPORTS/);
   });
 });
 

@@ -1,5 +1,11 @@
 import { PublicKey } from "@solana/web3.js";
-import { DEFAULT_PROGRAM_ID } from "@x2c-fun/casinovault-sdk";
+import { DEFAULT_PROGRAM_ID, MAX_PRIORITY_FEE_LAMPORTS } from "@x2c-fun/casinovault-sdk";
+
+/** Compute units Solana allows per transaction (the SDK's worst case when unset). */
+export const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
+const U64_MAX = (1n << 64n) - 1n;
+/** Smallest accepted LISTENER_MAX_BACKLOG (one full signature page). */
+export const MIN_LISTENER_MAX_BACKLOG = 1000;
 
 /** Backend configuration, read once from the environment at startup. */
 export interface Config {
@@ -24,8 +30,23 @@ export interface Config {
    * balances separately before going live).
    */
   upgradeSlot?: number;
-  /** Listener: stop and alert when more signatures than this are pending. */
+  /**
+   * Listener: alert threshold for pending signatures in one cycle (with a
+   * cursor the whole backlog is still processed); on first start a larger
+   * backlog is refused. At least 1000.
+   */
   listenerMaxBacklog?: number;
+  /**
+   * Listener: consecutive cursor-not-found cycles before it opens an incident
+   * and pauses the vault (default 10). Until then it only halts and alerts.
+   */
+  listenerNotFoundIncidentCycles?: number;
+  /**
+   * HOUSE_BANKROLL_LAMPORTS: house lamports in the pool the ledger cannot see
+   * (e.g. seeded by a plain System transfer). Counted as a liability by the
+   * reconcile job and the listener's release gate. Default 0.
+   */
+  houseBankrollLamports?: bigint;
 }
 
 /** HTTP API auth settings — only the API process needs these. */
@@ -72,8 +93,44 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
 
   const cuPrice = env.COMPUTE_UNIT_PRICE_MICRO_LAMPORTS?.trim();
-  if (cuPrice && !/^\d+$/.test(cuPrice)) {
-    throw new Error("COMPUTE_UNIT_PRICE_MICRO_LAMPORTS must be a non-negative integer");
+  if (cuPrice && (!/^\d+$/.test(cuPrice) || BigInt(cuPrice) > U64_MAX)) {
+    throw new Error("COMPUTE_UNIT_PRICE_MICRO_LAMPORTS must be a non-negative integer (u64)");
+  }
+  const computeUnitLimit = optionalInt(env, "COMPUTE_UNIT_LIMIT");
+  if (
+    computeUnitLimit !== undefined &&
+    (computeUnitLimit < 1 || computeUnitLimit > MAX_COMPUTE_UNIT_LIMIT)
+  ) {
+    throw new Error(`COMPUTE_UNIT_LIMIT must be an integer from 1 to ${MAX_COMPUTE_UNIT_LIMIT}`);
+  }
+  // Same bound the SDK enforces when building every withdraw (the user pays
+  // the fee): fail at startup instead of on every approval.
+  if (cuPrice) {
+    const units = BigInt(computeUnitLimit ?? MAX_COMPUTE_UNIT_LIMIT);
+    const fee = (BigInt(cuPrice) * units + 999_999n) / 1_000_000n;
+    if (fee > MAX_PRIORITY_FEE_LAMPORTS) {
+      throw new Error(
+        `COMPUTE_UNIT_PRICE_MICRO_LAMPORTS x COMPUTE_UNIT_LIMIT (${units}${
+          computeUnitLimit === undefined ? ", the default when unset" : ""
+        }) is a priority fee of ${fee} lamports, above the SDK's MAX_PRIORITY_FEE_LAMPORTS ` +
+          `(${MAX_PRIORITY_FEE_LAMPORTS})`,
+      );
+    }
+  }
+
+  const listenerMaxBacklog = optionalInt(env, "LISTENER_MAX_BACKLOG");
+  if (listenerMaxBacklog !== undefined && listenerMaxBacklog < MIN_LISTENER_MAX_BACKLOG) {
+    throw new Error(`LISTENER_MAX_BACKLOG must be at least ${MIN_LISTENER_MAX_BACKLOG}`);
+  }
+
+  const notFoundCycles = optionalInt(env, "LISTENER_NOT_FOUND_INCIDENT_CYCLES");
+  if (notFoundCycles !== undefined && notFoundCycles < 1) {
+    throw new Error("LISTENER_NOT_FOUND_INCIDENT_CYCLES must be at least 1");
+  }
+
+  const houseExtra = env.HOUSE_BANKROLL_LAMPORTS?.trim() || "0";
+  if (!/^\d+$/.test(houseExtra) || BigInt(houseExtra) > U64_MAX) {
+    throw new Error("HOUSE_BANKROLL_LAMPORTS must be a non-negative integer (u64)");
   }
 
   const startAfter = env.START_AFTER_SIGNATURE?.trim();
@@ -86,10 +143,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ledger,
     dbPath: env.DB_PATH?.trim() || "casinovault.db",
     computeUnitPriceMicroLamports: cuPrice ? BigInt(cuPrice) : undefined,
-    computeUnitLimit: optionalInt(env, "COMPUTE_UNIT_LIMIT"),
+    computeUnitLimit,
     startAfterSignature: startAfter || undefined,
     upgradeSlot: optionalInt(env, "UPGRADE_SLOT"),
-    listenerMaxBacklog: optionalInt(env, "LISTENER_MAX_BACKLOG"),
+    listenerMaxBacklog,
+    listenerNotFoundIncidentCycles: notFoundCycles,
+    houseBankrollLamports: BigInt(houseExtra),
   };
 }
 

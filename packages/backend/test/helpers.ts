@@ -149,16 +149,39 @@ export function fakeTx(
   } as unknown as VersionedTransactionResponse;
 }
 
+/** JSON-RPC error a node returns when it is behind `minContextSlot`. */
+export class MinContextSlotError extends Error {
+  readonly code = -32016;
+  constructor() {
+    super("Minimum context slot has not been reached");
+  }
+}
+
 /**
  * A fake `Connection` holding a chronological list of finalized signatures.
- * `getSignaturesForAddress` honours `until`/`before`/`limit` newest-first like
- * the real RPC; `getTransaction` serves `txs` (or null for unknown ones).
+ * `getSignaturesForAddress` honours `before`/`until`/`limit` newest-first like
+ * the real RPC, and errors like a lagging node when `minContextSlot` is above
+ * `nodeSlot`. `getEpochInfo` reports `epochSlot` / `blockHeight` (as another,
+ * up-to-date node behind the same load balancer may). `getTransaction` serves
+ * `txs` (or null for unknown ones).
  */
 export class FakeConnection implements ListenerConnection {
   sigs: ConfirmedSignatureInfo[] = []; // oldest first
   txs = new Map<string, VersionedTransactionResponse | null>();
   blockHeight = 1_000;
+  /** Finalized slot reported by getEpochInfo. */
+  epochSlot = 10_000_000;
+  /** Finalized slot of the node answering getSignaturesForAddress. */
+  nodeSlot = 10_000_000;
+  genesisHash = "GENESIS-devnet";
+  /** Pool PDA balance (finalized). Default: far above any test liability. */
+  poolBalance = 1_000_000_000_000;
+  rentExemptMinimum = 890_880;
+  /** Finalized slot of the node answering getBalance. */
+  balanceNodeSlot = 10_000_000;
+  balanceOptions: { commitment?: string; minContextSlot?: number }[] = [];
   sigCalls = 0;
+  sigOptions: { before?: string; until?: string; limit?: number; minContextSlot?: number }[] = [];
   txCalls: string[] = [];
 
   add(
@@ -173,9 +196,13 @@ export class FakeConnection implements ListenerConnection {
 
   async getSignaturesForAddress(
     _address: PublicKey,
-    options: { until?: string; before?: string; limit?: number } = {},
+    options: { until?: string; before?: string; limit?: number; minContextSlot?: number } = {},
   ): Promise<ConfirmedSignatureInfo[]> {
     this.sigCalls++;
+    this.sigOptions.push({ ...options });
+    if (options.minContextSlot !== undefined && options.minContextSlot > this.nodeSlot) {
+      throw new MinContextSlotError();
+    }
     const newestFirst = [...this.sigs].reverse();
     let start = 0;
     if (options.before) {
@@ -196,7 +223,26 @@ export class FakeConnection implements ListenerConnection {
     return this.txs.get(signature) ?? null;
   }
 
-  async getBlockHeight(): Promise<number> {
-    return this.blockHeight;
+  async getEpochInfo(): Promise<{ absoluteSlot: number; blockHeight: number }> {
+    return { absoluteSlot: this.epochSlot, blockHeight: this.blockHeight };
+  }
+
+  async getBalance(
+    _address: PublicKey,
+    config: { commitment?: string; minContextSlot?: number } = {},
+  ): Promise<number> {
+    this.balanceOptions.push({ ...config });
+    if (config.minContextSlot !== undefined && config.minContextSlot > this.balanceNodeSlot) {
+      throw new MinContextSlotError();
+    }
+    return this.poolBalance;
+  }
+
+  async getMinimumBalanceForRentExemption(): Promise<number> {
+    return this.rentExemptMinimum;
+  }
+
+  async getGenesisHash(): Promise<string> {
+    return this.genesisHash;
   }
 }

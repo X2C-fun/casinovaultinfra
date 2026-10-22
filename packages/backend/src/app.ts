@@ -3,6 +3,7 @@ import { loadAdminKeypair, assertAdminMatchesOnChain, safeErrorMessage } from ".
 import { createStorage } from "./storage";
 import { buildContext } from "./context";
 import { createApi } from "./server";
+import { verifyLedgerBinding } from "./binding";
 import { listenerDepsFromContext, runListener } from "./listener/listener";
 
 /**
@@ -22,6 +23,8 @@ export async function startBackend(opts: { withListener: boolean }): Promise<voi
   const storage = await createStorage(config, { adminKey: admin.publicKey.toBase58() });
   const ctx = buildContext(config, admin, storage.ledger);
 
+  // Refuse a ledger bound to another cluster / program (binds it on first run).
+  await verifyLedgerBinding(storage.ledger, ctx.connection, config.programId);
   await assertAdminMatchesOnChain(ctx.connection, config.programId, admin.publicKey);
   console.log(`admin ${admin.publicKey.toBase58()} verified against on-chain vault`);
   if (!auth.apiToken) {

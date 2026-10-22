@@ -2,6 +2,7 @@ import { loadConfig, requireAdminSecret } from "../config";
 import { loadAdminKeypair, assertAdminMatchesOnChain, safeErrorMessage } from "../admin";
 import { createStorage } from "../storage";
 import { buildContext } from "../context";
+import { verifyLedgerBinding } from "../binding";
 import { listenerDepsFromContext, runListener } from "./listener";
 
 /**
@@ -14,6 +15,7 @@ async function main(): Promise<void> {
   const admin = loadAdminKeypair(requireAdminSecret());
   const storage = await createStorage(config, { adminKey: admin.publicKey.toBase58() });
   const ctx = buildContext(config, admin, storage.ledger);
+  await verifyLedgerBinding(storage.ledger, ctx.connection, config.programId);
   await assertAdminMatchesOnChain(ctx.connection, config.programId, admin.publicKey);
   const deps = listenerDepsFromContext(ctx);
 
