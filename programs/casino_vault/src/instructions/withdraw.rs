@@ -19,9 +19,9 @@ use crate::utils::{
 pub struct Withdraw<'info> {
     /// Recipient of the funds.
     ///
-    /// The destination is this signer and nothing else: there is no address
-    /// parameter, so a stolen admin key cannot redirect a payout. The user's
-    /// signature also proves the payout was requested by the account holder.
+    /// The only destination is this signer, so a stolen admin key cannot take a
+    /// player's payout; it can still sign as user too and pay itself, up to the
+    /// caps. The user's signature proves the account holder asked for it.
     #[account(mut)]
     pub user: Signer<'info>,
 

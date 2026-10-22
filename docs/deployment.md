@@ -130,7 +130,8 @@ Do this **immediately** after deploy. Follow
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=./keys/admin.json
 
-npm run read                 # admin = your admin pubkey, paused = false, no caps
+npm run read                 # admin = your admin pubkey, paused = true, your caps
+npm run set-paused -- false  # the vault starts paused; the admin opens it
 npm run deposit -- 0.5       # house bankroll into the pool
 npm run withdraw -- 0.1 1   # admin signs as user and admin; 1 = request_id
 npm run read                 # pool balance reflects the moves
@@ -190,14 +191,27 @@ solana balance $(solana-keygen pubkey keys/admin.json) --url https://api.devnet.
 ### 4. Run `initialize` as the upgrade authority, co-signed by the admin
 
 ```bash
+# Caps as for set-limits: <max_per_tx_sol> <max_per_window_sol> <window_seconds>
 ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
 ANCHOR_WALLET=./wallet.json \
 ADMIN_WALLET=./keys/admin.json \
-npm run initialize
+npm run initialize -- 1 5 3600
 ```
 
-The script checks that `ANCHOR_WALLET` is the on-chain upgrade authority and
-refuses to run twice.
+The script sends `initialize`, `set_limits` and `set_paused(true)` in **one**
+transaction, so the vault never exists unpaused or without caps. The caps are
+required; pass `--no-limits` instead to start without any (withdrawals are then
+bounded only by the pool balance). Pass `--unpaused` to skip the pause. It
+checks that `ANCHOR_WALLET` is the on-chain upgrade authority and refuses to
+run twice.
+
+When the backend is ready, the admin opens the vault:
+
+```bash
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+ANCHOR_WALLET=./keys/admin.json \
+npm run set-paused -- false
+```
 
 ### 5. Verify
 
@@ -207,7 +221,8 @@ ANCHOR_WALLET=./keys/admin.json \
 npm run read
 ```
 
-`admin:` must equal `solana-keygen pubkey keys/admin.json`.
+`admin:` must equal `solana-keygen pubkey keys/admin.json`, and the caps and
+`paused` must be what you asked for.
 
 ### Rules
 
@@ -314,20 +329,21 @@ without moving funds:
    `anchor upgrade` and `anchor idl upgrade` as above. From this moment every
    instruction fails until step 3 — the v0.1 state account is ignored, not
    misread.
-3. Run `npm run initialize` with `ANCHOR_WALLET` = upgrade authority and
-   `ADMIN_WALLET` = admin. It creates `["vault_state_v2"]` and keeps the existing
-   pool balance (the event's `vault_balance` shows it). The v0.1 pause flag
-   does **not** carry over: the new state starts unpaused with no caps.
-   Immediately run `npm run set-limits` and, until backends are ready,
-   `npm run set-paused -- true` as the admin.
+3. Run `npm run initialize -- <max_per_tx_sol> <max_per_window_sol> <window_seconds>`
+   with `ANCHOR_WALLET` = upgrade authority and `ADMIN_WALLET` = admin. It
+   creates `["vault_state_v2"]` and keeps the existing pool balance (the
+   event's `vault_balance` shows it). The v0.1 pause flag does **not** carry
+   over, so the same transaction sets the caps and pauses the new state;
+   there is no window in which the pool is open without caps. Unpause with
+   `npm run set-paused -- false` as the admin once backends are ready.
 4. Deploy backends built against the v0.2
    IDL (`withdraw(amount, request_id)`; two extra accounts appended to
    `deposit`/`withdraw`).
 
 If the upgrade authority is already a multisig, `npm run initialize` cannot
-sign for it: build the same `initialize` instruction (upgrade authority as
-`authority`, admin as `admin`) as a multisig transaction, and have the admin
-key co-sign the execution.
+sign for it: build the same `initialize`, `set_limits` and `set_paused(true)`
+instructions (upgrade authority as `authority`, admin as `admin`) as one
+multisig transaction, and have the admin key co-sign the execution.
 
 The old 42-byte `["vault_state"]` account stays behind holding its rent
 (`getMinimumBalanceForRentExemption(42)`); it is inert, since every v0.2
@@ -366,10 +382,11 @@ solana program set-upgrade-authority <PROGRAM_ID> --final --url <RPC_URL>
    QuickNode, Alchemy).
 6. Fund the deployer with enough SOL for the program upload (check
    `solana rent <bytes>` against the `.so` size, ×2 buffer).
-7. Deploy → `initialize` (upgrade authority + admin) → `npm run read` to
-   confirm admin.
-8. Set withdrawal caps with `npm run set-limits` sized to what you could lose
-   if the admin key leaked before you noticed.
+7. Deploy → `npm run initialize -- <caps>` (upgrade authority + admin; sets
+   the caps and starts paused in the same transaction) → `npm run read` to
+   confirm admin, caps and `paused = true`.
+8. Size those caps to what you could lose if the admin key leaked before you
+   noticed; change them later with `npm run set-limits`.
 9. Backend asserts on-chain admin at startup and reconciles
    `pool balance` vs `sum(db balances) + house bankroll + rent reserve`.
 10. Rehearse `set_paused true/false` and an admin rotation before going live.

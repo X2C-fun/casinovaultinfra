@@ -116,7 +116,8 @@ The safe sequence:
    - A `WithdrawEvent` whose `request_id` matches no open hold, or whose
      `user` or `amount` differ from it (other than a house withdrawal, below),
      means an approval leaked or your accounting is wrong. Treat it as an
-     incident: alert and `set_paused true` before anything else.
+     incident: alert and `set_paused true` before anything else (see
+     [Incident response](#incident-response)).
    - The listener has processed every finalized block up to a block height
      greater than the hold's `lastValidBlockHeight`, and no matching event
      was seen → the transaction can no longer land; release the hold back to
@@ -168,3 +169,31 @@ Rules for the listener:
 
 The reference frontend's demo route (`/api/withdraw`) has no ledger, so it
 skips the hold entirely; it is not an implementation of this flow.
+
+## Incident response
+
+When a `WithdrawEvent` matches no hold or house record, or the admin key may
+have leaked, stop withdrawals first and investigate after:
+
+1. **Admin:** `npm run set-paused -- true` (`ANCHOR_WALLET` = admin). This
+   stops `deposit` and `withdraw` at once. A leaked admin key can unpause, so
+   pause only buys time; continue with step 2 whenever the key itself is in
+   doubt.
+2. **Upgrade authority**, if the admin key is compromised or not at hand. It
+   cannot pause directly. Its fastest single-transaction freeze is a
+   1-lamport per-transaction cap, which blocks every real withdrawal (house
+   ones included; deposits stay open):
+
+   ```bash
+   ANCHOR_WALLET=./wallet.json npm run set-limits -- 0.000000001 0 0
+   ```
+
+   (`0 0` drops the window cap, which resets its running total. To keep it,
+   pass the current window cap and length instead.)
+
+   Then rotate the admin with `propose_admin` → `accept_admin` (one
+   transaction signed by the upgrade authority and the replacement key; see
+   [Reference](reference.md#propose_admin--accept_admin--rotate-the-admin))
+   and have the new admin pause (`npm run set-paused -- true`).
+3. Reconcile, fix the cause, restore the real caps with `npm run set-limits`,
+   and unpause with `npm run set-paused -- false`.
