@@ -101,7 +101,7 @@ pub struct Flip {
     /// Client-chosen byte committed for the live request and echoed back by
     /// the callback. It is a request tag that the callback must match, and it
     /// is folded into the VRF `caller_seed`; at one byte it adds no meaningful
-    /// entropy (see `docs/fairness.md`).
+    /// entropy (see the repository's `docs/fairness.md`).
     pub client_seed: u8,
 
     /// The side the player bet on for the live request.

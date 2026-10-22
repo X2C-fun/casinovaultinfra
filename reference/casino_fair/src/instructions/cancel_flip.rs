@@ -31,7 +31,7 @@ pub struct CancelFlip<'info> {
 /// computes it) can withhold the callback and let the player cancel and try
 /// again. An integrator that attaches a stake must make the stake's fate on
 /// cancel independent of the outcome (a fixed refund or forfeit). See
-/// `docs/fairness.md`.
+/// the repository's `docs/fairness.md`.
 pub fn process_cancel_flip(ctx: Context<CancelFlip>) -> Result<()> {
     let flip = &mut ctx.accounts.flip;
     let cancelled_round = flip.cancel(current_slot()?)?;

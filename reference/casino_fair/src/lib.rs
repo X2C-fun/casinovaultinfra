@@ -5,7 +5,7 @@
 //! A minimal **coin-flip** reference program built on **MagicBlock VRF**. It is
 //! the companion to `casino_vault`: the vault custodies funds, this program
 //! shows how to settle a bet against verifiable randomness. Read the trust model
-//! below — and `docs/fairness.md` — before trusting the word "fair".
+//! below — and the repository's `docs/fairness.md` — before trusting the word "fair".
 //!
 //! One PDA exists per player, `["flip", player]` ([`state::Flip`]). A flip runs
 //! across **two separate transactions**:
@@ -33,7 +33,7 @@
 //! * **But the oracle can predict and withhold.** The oracle computes the
 //!   output, so it knows the result before anyone else, and it can decline to
 //!   deliver it. Combined with `cancel_flip`, withholding is a re-roll: see
-//!   `docs/fairness.md`.
+//!   the repository's `docs/fairness.md`.
 //! * **`client_seed` is a one-byte request tag**, repeated into the VRF
 //!   `caller_seed` and echoed back by the callback. It is not meaningful
 //!   entropy and does not stop the oracle predicting the result.

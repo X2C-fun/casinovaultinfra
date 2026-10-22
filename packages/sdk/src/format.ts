@@ -61,8 +61,8 @@ export function solToLamports(sol: string): bigint {
   return lamports;
 }
 
-/** Shortens an address to `abcdâ€¦wxyz` for display. */
+/** Shortens an address to `abcd...wxyz` for display. */
 export function shortAddress(address: string, chars = 4): string {
   if (address.length <= chars * 2 + 3) return address;
-  return `${address.slice(0, chars)}â€¦${address.slice(-chars)}`;
+  return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }

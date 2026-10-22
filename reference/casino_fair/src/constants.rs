@@ -19,7 +19,7 @@ pub const FLIP_SEED: &[u8] = b"flip";
 /// healthy MagicBlock VRF oracle fulfils within a few slots, so this is long
 /// enough that the oracle normally settles first and short enough that a flip
 /// is not stuck for long when it does not. Cancelling is a **re-roll vector**
-/// when a stake is attached; see `docs/fairness.md` before relying on it.
+/// when a stake is attached; see the repository's `docs/fairness.md` before relying on it.
 pub const CANCEL_TIMEOUT_SLOTS: u64 = 150;
 
 /// Whether `queue` is a VRF oracle queue this build accepts.
