@@ -73,6 +73,31 @@ function serverRpcUrl(): string {
   return process.env.SOLANA_RPC_URL?.trim() || SOLANA_RPC;
 }
 
+/**
+ * An error's message (and its cause's) for the server log, with the RPC URL
+ * and any URL credentials or API-key query parameters removed. web3.js and
+ * fetch errors can quote the endpoint, and `SOLANA_RPC_URL` may carry a key,
+ * so the raw error object must never be logged.
+ */
+function redactedError(err: unknown): string {
+  const describe = (e: unknown) =>
+    e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  let text = describe(err);
+  if (err instanceof Error && err.cause !== undefined) {
+    text += ` (cause: ${describe(err.cause)})`;
+  }
+  const rpc = serverRpcUrl();
+  for (const url of new Set([rpc, rpc.replace(/\/+$/, "")])) {
+    if (url) text = text.split(url).join("<rpc-url>");
+  }
+  return text
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1<redacted>@")
+    .replace(
+      /([?&](?:api[-_]?key|key|token|access[-_]?token|auth|secret)=)[^&\s"']*/gi,
+      "$1<redacted>",
+    );
+}
+
 let cachedAdmin: Keypair | null = null;
 
 function loadAdminKeypair(): Keypair {
@@ -348,7 +373,7 @@ export async function POST(req: NextRequest) {
     if (err instanceof HttpError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
-    console.error("withdraw approve failed:", err);
+    console.error("withdraw approve failed:", redactedError(err));
     return NextResponse.json(
       { error: "Withdrawal approval failed. Please try again later." },
       { status: 500 },

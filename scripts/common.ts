@@ -160,6 +160,39 @@ export function solToLamports(input: string): bigint {
   return lamports;
 }
 
+/** Withdrawal caps as `set_limits` takes them. */
+export interface Limits {
+  perTx: bigint;
+  perWindow: bigint;
+  windowSeconds: number;
+}
+
+/**
+ * Parses `<max_per_tx_sol> <max_per_window_sol> <window_seconds>` (SOL; `0`
+ * disables a cap). The window cap and window length must be both zero or both
+ * non-zero, as the program requires.
+ */
+export function parseLimits(
+  perTxArg: string,
+  perWindowArg: string,
+  windowArg: string,
+): Limits {
+  const capLamports = (arg: string) =>
+    /^0*(\.0*)?$/.test(arg.trim()) ? BigInt(0) : solToLamports(arg);
+  const perTx = capLamports(perTxArg);
+  const perWindow = capLamports(perWindowArg);
+  const windowSeconds = parseU64(windowArg, "window_seconds");
+  if (windowSeconds > BigInt(0xffffffff)) {
+    throw new Error("window_seconds must fit in a u32.");
+  }
+  if ((perWindow === BigInt(0)) !== (windowSeconds === BigInt(0))) {
+    throw new Error(
+      "max_per_window and window_seconds must both be 0 or both be non-zero.",
+    );
+  }
+  return { perTx, perWindow, windowSeconds: Number(windowSeconds) };
+}
+
 /** Lamports → SOL for human-readable logs. */
 export function lamportsToSol(lamports: number | bigint): string {
   return (Number(lamports) / 1e9).toFixed(9);
@@ -239,6 +272,69 @@ async function signatureStatus(
   }
 }
 
+/**
+ * Result of {@link checkExpiry}. `"pending"` covers both "still valid" and
+ * "could not tell": in either case the caller must keep re-sending the same
+ * bytes and never build a new transaction.
+ */
+export type ExpiryCheck = "landed" | "pending" | "expired" | { err: unknown };
+
+/**
+ * Decides whether a transaction may be replaced by a fresh one. Only
+ * `"expired"` allows that, and it is returned only when all of these hold:
+ *
+ * 1. the cluster's FINALIZED block height is past `lastValidBlockHeight`, so
+ *    no fork that can still win includes a block where it could land;
+ * 2. a status lookup that searches the node's full transaction history (not
+ *    just the recent status cache) does not know the signature;
+ * 3. that lookup was answered from a slot at or after the finalized slot of
+ *    step 1, so a node lagging behind the one that reported the height cannot
+ *    produce a false "not found".
+ *
+ * Any RPC error, a missing field or a status that is not yet confirmed counts
+ * as unknown (`"pending"`). Public RPC URLs are load-balanced, so consecutive
+ * calls can hit different nodes; a "missing" answer from a lagging node must
+ * never be enough to sign a second deposit or withdrawal.
+ */
+export async function checkExpiry(
+  connection: Connection,
+  signature: string,
+  lastValidBlockHeight: number,
+): Promise<ExpiryCheck> {
+  try {
+    // One call gives the finalized block height and the slot it belongs to.
+    const finalized = await connection.getEpochInfo("finalized");
+    if (
+      typeof finalized.blockHeight !== "number" ||
+      finalized.blockHeight <= lastValidBlockHeight
+    ) {
+      return "pending";
+    }
+    const { context, value } = await connection.getSignatureStatuses(
+      [signature],
+      { searchTransactionHistory: true },
+    );
+    const status = value?.[0];
+    if (status) {
+      if (status.err) return { err: status.err };
+      return status.confirmationStatus === "confirmed" ||
+        status.confirmationStatus === "finalized"
+        ? "landed"
+        : "pending";
+    }
+    if (
+      status !== null ||
+      typeof context?.slot !== "number" ||
+      context.slot < finalized.absoluteSlot
+    ) {
+      return "pending";
+    }
+    return "expired";
+  } catch {
+    return "pending";
+  }
+}
+
 export interface SendOptions {
   /** Fresh transactions to build, each only after the previous one expired. */
   maxBuilds?: number;
@@ -258,9 +354,11 @@ export interface SendOptions {
  * Re-sending identical bytes is idempotent: they carry one signature, and the
  * runtime processes a signature at most once. A fresh transaction (new
  * blockhash, new signature) is built only after the previous one is proven
- * expired: the cluster's block height is past its `lastValidBlockHeight` and
- * the signature never landed. A timeout or dropped connection after a
- * successful send can therefore never cause a second deposit or withdrawal.
+ * expired (see {@link checkExpiry}): the FINALIZED block height is past its
+ * `lastValidBlockHeight` and a history-wide status lookup from an up-to-date
+ * node does not know the signature. Anything less certain keeps re-sending
+ * the same bytes. A timeout, a dropped connection or a lagging RPC node after
+ * a successful send can therefore never cause a second deposit or withdrawal.
  *
  * `extraSigners` are signers other than the provider wallet, which always
  * signs and pays the fee.
@@ -346,17 +444,22 @@ export async function sendWithRetry(
         );
       }
 
-      let height: number | null = null;
-      try {
-        height = await connection.getBlockHeight(DEFAULT_COMMITMENT);
-      } catch (err) {
-        if (!isTransientRpcError(err)) throw err;
+      // `status` above came from the recent status cache of whichever node
+      // answered, and a transient error also reads as "missing". Neither is
+      // proof that the transaction did not land, so the rebuild decision is
+      // made by checkExpiry alone.
+      const expiry = await checkExpiry(
+        connection,
+        signature,
+        lastValidBlockHeight,
+      );
+      if (expiry === "landed") return signature;
+      if (typeof expiry === "object") {
+        throw new Error(
+          `${label}: transaction ${signature} failed on-chain: ${JSON.stringify(expiry.err)}`,
+        );
       }
-      if (height !== null && height > lastValidBlockHeight) {
-        // Expired. One last look: it can no longer land after this.
-        if ((await signatureStatus(connection, signature)) === "landed") {
-          return signature;
-        }
+      if (expiry === "expired") {
         console.warn(
           `${label}: transaction ${signature} expired without landing` +
             (buildNo < maxBuilds ? "; building a new one" : ""),

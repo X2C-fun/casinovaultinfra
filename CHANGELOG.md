@@ -72,6 +72,33 @@ All notable changes to this project are documented here. The format follows
   build on platform-tools v1.48 in the `anchor` job), plus a check that the
   SDK's IDL matches the build. Dependabot covers both packages.
 
+### Fixed
+
+- Scripts: `sendWithRetry` could build and sign a second transaction (a
+  second deposit or withdrawal) after the first had landed, when a transient
+  RPC error or a lagging node made the first look missing. It now replaces a
+  transaction only after the finalized block height is past its
+  `lastValidBlockHeight` and a history-wide status lookup, answered at or
+  after that finalized slot, does not know it; any error or doubt keeps
+  re-sending the same bytes. Unit tests in `tests/send_with_retry.ts`.
+- Program docs (crate docs and the `withdraw` `user` account docs, which are
+  in the IDL) no longer claim a stolen admin key cannot redirect a payout. It
+  cannot take a player's payout, but it can sign as user too and pay itself,
+  up to the caps. Comments only: the program binary is unchanged.
+- Frontend `/api/withdraw` logs a redacted error message instead of the raw
+  error object, which could contain `SOLANA_RPC_URL` and its API key.
+
+### Changed
+
+- `npm run initialize` sends `initialize`, `set_limits` and `set_paused(true)`
+  in one transaction, so a new vault is never open without caps. Caps are
+  required (same arguments as `set-limits`, or an explicit `--no-limits`); the
+  vault starts paused unless `--unpaused` is given. Deployment docs and the
+  v0.1.x upgrade steps updated.
+- Docs: incident response in `docs/backend-integration.md`, including the
+  upgrade authority's one-transaction freeze (a 1-lamport per-transaction cap;
+  it cannot pause) alongside `propose_admin` → `accept_admin` → pause.
+
 ### Known limitations
 
 - None of the new components is audited. The backend's API token stands in for
