@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "TypeScript SDK for the Casino Vault Solana program: typed IDL, PDAs, instruction builders, a safe withdraw-transaction builder, event decoding, and pool reconciliation.",
   "license": "MIT",
+  "homepage": "https://github.com/X2C-fun/casinovaultinfra/tree/main/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/X2C-fun/casinovaultinfra/issues"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,9 +25,13 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "sideEffects": false,
+  "engines": {
+    "node": ">=20.17"
+  },
   "publishConfig": {
     "access": "public"
   },
