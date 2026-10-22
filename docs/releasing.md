@@ -9,7 +9,8 @@ Everything here targets devnet. The SDK is not audited.
 
 ## Prerequisites (once)
 
-- Node.js 22 and npm 11 (`node -v`, `npm -v`). CI uses the same versions.
+- Node.js 22 (as CI; 20.17 or later works) and npm 11 (CI pins 11.21.1);
+  check with `node -v` and `npm -v`.
 - An npm account that belongs to the `@x2c-fun` npm organization, with 2FA
   turned on. If you publish under another scope, see
   [Publishing under another scope](#publishing-under-another-scope).
@@ -32,7 +33,8 @@ npm publish --dry-run   # lists exactly what will be uploaded
 npm publish             # prepublishOnly rebuilds dist; enter your OTP
 ```
 
-The dry run must list only `package.json`, `README.md` and `dist/*`.
+The dry run must list only `package.json`, `README.md`, `LICENSE` and
+`dist/*` (CI checks the same list).
 `publishConfig.access` is `public`, so the first publish of the scoped package
 needs no extra flag.
 
@@ -43,6 +45,16 @@ they don't clash with the program's `vX.Y.Z` tags:
 git tag -a sdk-v0.1.0 -m "casinovault-sdk v0.1.0"
 git push origin sdk-v0.1.0
 ```
+
+### Provenance (optional)
+
+`npm publish --provenance` attaches a signed statement that links the tarball
+to the commit and workflow that built it, shown on the package's npm page. It
+only works when publishing from a supported CI provider such as GitHub
+Actions, from a workflow job with `permissions: id-token: write` (and an npm
+token, or npm trusted publishing, for the upload). A manual publish from a
+laptop, as above, cannot add provenance. This repository has no publish
+workflow yet.
 
 ## Verify
 

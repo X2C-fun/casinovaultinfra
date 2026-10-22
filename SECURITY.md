@@ -2,7 +2,7 @@
 
 ## Status
 
-Casino Vault v0.1 is a **devnet demo**. It has **not** been audited. Do not hold
+Casino Vault v0.2 is a **devnet demo**. It has **not** been audited. Do not hold
 mainnet funds with it until it has been reviewed and the items under
 [Known limitations](docs/architecture.md#known-limitations) are addressed for your deployment.
 
@@ -18,7 +18,9 @@ channel.
 
 Include:
 
-- the affected component (on-chain program, scripts, or frontend);
+- the affected component (on-chain program, scripts, frontend, TypeScript SDK
+  in `packages/sdk`, settlement backend in `packages/backend`, or the
+  `casino_fair` fairness reference in `reference/casino_fair`);
 - the commit hash or program ID you tested against;
 - reproduction steps or a proof of concept (devnet or localnet only);
 - the impact you believe it has.
@@ -44,6 +46,15 @@ touch funds you do not own.
 | **User wallet** | Deposits; signs its own withdrawals. | Only that user's withdrawals are affected; payouts can go only to the signing user. |
 
 Keep the admin key and the upgrade authority separate.
+
+## Reference settlement backend
+
+`packages/backend` holds the hot admin key: `ADMIN_SECRET_KEY` is read from its
+environment (`.env`), so anyone who can read that environment can co-sign
+withdrawals (see the table above). Its `API_TOKEN` is one shared bearer token
+for the whole HTTP API. It is **not player authentication**: any holder can act
+for any player. A real deployment must authenticate each player and derive the
+owner from the session, never from the request body.
 
 ## Demo withdraw API
 

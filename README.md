@@ -14,7 +14,7 @@ backend database, which is driven by the events emitted here.
 | Program ID        | `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7` |
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
-| Rust (SBF)        | `1.84.0`, edition 2021                         |
+| Rust (SBF)        | `1.84.1` (platform-tools v1.48), edition 2021  |
 | Deployed clusters | devnet (v0.2.0, upgraded in slot 512813387)    |
 
 > **Status: not audited, not for mainnet funds.** The devnet program runs
@@ -43,7 +43,8 @@ backend database, which is driven by the events emitted here.
 
 Run the program and its integration tests on a local validator. You need the
 Rust, Solana 2.3.13 and Anchor 0.32.1 toolchains
-([install steps](docs/deployment.md#step-1--install-the-toolchain)) and Node.js 20 or later.
+([install steps](docs/deployment.md#step-1--install-the-toolchain)), Node.js 22 (as CI; 20.17
+or later works) and npm 11 (CI pins 11.21.1).
 
 ```bash
 git clone https://github.com/X2C-fun/casinovaultinfra.git

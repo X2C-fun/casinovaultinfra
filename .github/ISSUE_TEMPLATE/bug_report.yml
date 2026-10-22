@@ -12,6 +12,9 @@ body:
       label: Component
       options:
         - On-chain program (programs/casino_vault)
+        - TypeScript SDK (packages/sdk)
+        - Settlement backend (packages/backend)
+        - Fairness reference (reference/casino_fair)
         - CLI scripts (scripts/)
         - Tests / CI
         - Reference frontend (casinovault-frontend/)

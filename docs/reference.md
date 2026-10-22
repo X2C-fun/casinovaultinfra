@@ -228,6 +228,7 @@ at 10 KB per transaction, which a transaction with many instructions can hit;
 the CPI copy is immune to that. An indexer should read the CPI copy from the
 transaction's inner instructions (first 8 bytes `e445a52e51cb9a1d`, then the
 event); a websocket listener can use the logs. Consume **one** source, and
-de-duplicate by `(transaction signature, instruction index, event index)`,
-never by the signature alone: one transaction can hold several identical
-deposits. The other events are log-only.
+de-duplicate by `(transaction signature, source, instruction index, event
+index)` (the SDK's `vaultEventKey`), never by the signature alone: one
+transaction can hold several identical deposits. The other events are
+log-only.

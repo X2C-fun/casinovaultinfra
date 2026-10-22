@@ -32,9 +32,9 @@ in the backend, driven by the events the vault emits.
 ## 2. Repository map
 
 ```
-programs/            # everything `anchor build` builds (both deploy to devnet)
-  casino_vault/      # the custody program (Anchor 0.32.1) — the deployed artifact
-  cpi_probe/         # test-only fixture: forwards vault calls through CPI
+programs/            # everything `anchor build` builds; only casino_vault is deployed
+  casino_vault/      # the custody program (Anchor 0.32.1); `anchor deploy -p casino_vault`
+  cpi_probe/         # test-only fixture: forwards vault calls through CPI; never deployed
 reference/
   casino_fair/       # VRF coin-flip reference — STANDALONE crate, NOT in programs/ (see §6)
 packages/
@@ -77,8 +77,9 @@ claim to be, trustless or provably solvent on-chain.
 
 ## 4. Build & test — exact commands
 
-Node 22 and npm 11 (as CI), Rust + Solana 2.3.13 + Anchor 0.32.1 for the program. `npm` is the
-package manager (the repo ships `package-lock.json`). The `packages/*` are
+Node.js 22 (as CI; 20.17 or later works) and npm 11 (CI pins 11.21.1); Rust +
+Solana 2.3.13 + Anchor 0.32.1 for the program. `npm` is the package manager
+(the repo ships `package-lock.json`). The `packages/*` are
 **standalone** — install and test each in its own directory. (The root is NOT
 an npm workspace: that would require regenerating the root `package-lock.json`,
 and CI runs `npm ci` against the committed lock.)
@@ -90,6 +91,15 @@ anchor build            # builds casino_vault + cpi_probe (NOT casino_fair — s
 anchor test             # local validator + full integration suite
 # ops scripts (need ANCHOR_PROVIDER_URL + ANCHOR_WALLET):
 npm run read | deposit | withdraw | initialize | set-limits | set-paused | propose-admin | accept-admin
+```
+
+The root `package.json` also has shortcuts for the packages. They only run the
+script in that directory, so run `npm ci` there first; `backend:test` also
+needs the SDK built (`dist/`), because the backend imports it by path:
+```bash
+npm run sdk:build       # = cd packages/sdk && npm run build
+npm run sdk:test        # = cd packages/sdk && npm test
+npm run backend:test    # = cd packages/backend && npm test (run sdk:build first)
 ```
 
 **SDK** (`packages/sdk`)
@@ -109,6 +119,7 @@ npm run start                     # API + listener (or `npm run api` + `npm run 
 **Fairness program** (`reference/casino_fair`, standalone, own `Cargo.lock`)
 ```bash
 cargo test --manifest-path reference/casino_fair/Cargo.toml --locked
+cargo clippy --manifest-path reference/casino_fair/Cargo.toml --locked --all-targets -- -D warnings
 cargo build-sbf --manifest-path reference/casino_fair/Cargo.toml --tools-version v1.48 -- --locked
 ```
 
@@ -181,8 +192,9 @@ and not built by `anchor build`.
   `cargo update` there**; change pins one crate at a time with
   `cargo update -p <crate> --precise <version>` and rebuild with
   `cargo build-sbf ... -- --locked`.
-- CI runs its fmt, clippy and host tests. Adding it to the workspace would
-  merge its lock into the vault's; don't, unless both build from one lock.
+- CI runs its fmt, clippy and host tests, and builds it for SBF in the
+  `anchor` job. Adding it to the workspace would merge its lock into the
+  vault's; don't, unless both build from one lock.
   Full detail: `docs/fairness.md`.
 
 ---

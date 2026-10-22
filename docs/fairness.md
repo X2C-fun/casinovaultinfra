@@ -102,6 +102,14 @@ oracle normally fulfils first. `CANCEL_TIMEOUT_SLOTS = 150` (about one minute at
 slots. Raise it if your oracle is slower; lowering it makes cancels, and so
 re-rolls, more frequent.
 
+A result can also become public without being settled. If a fulfilment
+transaction lands but fails after the VRF program has verified the proof (for
+example, it runs out of compute in the callback), its state changes are rolled
+back, but the failed transaction stays on-chain and the randomness is visible
+in it. The flip stays `Requested`. The player can read the transaction, learn
+the outcome, and cancel after the timeout if they lost. The rule above covers
+this too: cancel economics must not depend on the outcome.
+
 ### What the integrator must still do
 
 The protocol secures the *randomness* and the *settlement identity*. It does not
@@ -231,7 +239,8 @@ devnet, not on a bare local validator. Rough manual steps:
 All events are emitted with `emit!` (program logs) **only**, not `emit_cpi!`.
 Solana truncates logs past the per-transaction limit, so a listener can miss an
 event. The callback's account list is built by the VRF oracle, so it cannot
-carry the `#[event_cpi]` accounts that `emit_cpi!` needs. Treat the `Flip`
+carry the `#[event_cpi]` accounts that `emit_cpi!` needs. For the same reason
+the crate does not enable Anchor's `event-cpi` feature. Treat the `Flip`
 account as the source of truth, and re-read it whenever an event might have
 been missed.
 

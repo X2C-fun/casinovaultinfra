@@ -32,7 +32,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: clippy
@@ -48,7 +48,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned
         with:
           toolchain: ${{ env.RUST_VERSION }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -99,12 +99,18 @@ jobs:
       - name: anchor build
         run: anchor build
 
+      # casino_fair is a standalone crate that `anchor build` skips; its
+      # committed Cargo.lock only builds on platform-tools v1.48 (rustc 1.84.1).
+      - name: casino_fair SBF build
+        run: cargo build-sbf --manifest-path reference/casino_fair/Cargo.toml --tools-version v1.48 -- --locked
+
       - name: Committed IDL matches build output
         run: |
           diff <(jq -S . target/idl/casino_vault.json) \
                <(jq -S . casinovault-frontend/src/idl/casino_vault.json)
           diff target/types/casino_vault.ts casinovault-frontend/src/idl/casino_vault.ts
-          diff <(jq -S . target/idl/casino_vault.json)                <(jq -S . packages/sdk/src/idl/casino_vault.json)
+          diff <(jq -S . target/idl/casino_vault.json) \
+               <(jq -S . packages/sdk/src/idl/casino_vault.json)
           diff target/types/casino_vault.ts packages/sdk/src/idl/casino_vault.ts
 
       - name: Typecheck scripts and tests
@@ -162,13 +168,30 @@ jobs:
           npm run build
           npm test
           npm run smoke
-          npm pack --dry-run
+          npm audit --omit=dev --audit-level=critical
+      # The published tarball must hold exactly package.json, README.md,
+      # LICENSE and dist/*. `npm pack --dry-run` alone only lists the files.
+      - name: SDK package contents
+        working-directory: packages/sdk
+        run: |
+          npm pack --dry-run --json | node -e '
+            const files = JSON.parse(require("fs").readFileSync(0, "utf8"))[0].files.map((f) => f.path).sort();
+            const required = ["package.json", "README.md", "LICENSE"];
+            const extra = files.filter((p) => !required.includes(p) && !p.startsWith("dist/"));
+            const missing = required.filter((p) => !files.includes(p));
+            for (const p of files) console.log(p);
+            if (extra.length || missing.length || !files.some((p) => p.startsWith("dist/"))) {
+              console.error("unexpected package contents", { extra, missing });
+              process.exit(1);
+            }
+          '
       - name: Backend
         working-directory: packages/backend
         run: |
           npm ci
           npm run typecheck
           npm test
+          npm audit --omit=dev --audit-level=critical
 
   casino_fair:
     name: casino_fair (clippy + host tests)
@@ -182,7 +205,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: reference/casino_fair
       - name: rustfmt
