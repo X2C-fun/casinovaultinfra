@@ -1,5 +1,12 @@
 [workspace]
-members = ["programs/*"]
+# `casino_fair` (the MagicBlock-VRF fairness reference) lives in `reference/`,
+# not `programs/`, and is not a workspace member. Its dependency tree only
+# builds for SBF on the pinned platform-tools with its own committed
+# `reference/casino_fair/Cargo.lock`, so it keeps that lock instead of sharing
+# this one, and `anchor build` (which builds everything in `programs/`) stays
+# limited to the vault. See docs/fairness.md for building and testing it.
+members = ["programs/casino_vault", "programs/cpi_probe"]
+exclude = ["reference/casino_fair"]
 # Anchor 0.32's manifest parser only understands resolver 1 and 2, so the
 # workspace stays on 2 and `Cargo.lock` is the pin instead.
 #

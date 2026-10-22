@@ -12,6 +12,16 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 
+# Package build output, packed tarballs, Bun lockfiles (packages use npm) and local DBs
+packages/*/dist/
+packages/*/*.tgz
+bun.lock
+bun.lockb
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 # Local keypairs. Never commit a secret key.
 # Recreate the provider wallet with: solana-keygen new -o wallet.json
 wallet.json

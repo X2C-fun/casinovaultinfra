@@ -21,7 +21,8 @@ reviewed with security first.
 | Rust (host) | 1.89.0 (CI) |
 | Solana / Agave CLI | 2.3.13 |
 | Anchor CLI | 0.32.1 |
-| Node.js | 22 (20+ works) |
+| Node.js | 22 (as CI); 20.17 or later works |
+| npm | 11 (CI pins 11.21.1) |
 
 ## Setup
 
@@ -43,36 +44,69 @@ cp .env.example .env.local
 
 ## Checks to run before opening a PR
 
-These are the same checks CI runs (`.github/workflows/ci.yml`):
+These are the same checks CI runs (`.github/workflows/ci.yml`), from the
+repository root. The `anchor` job also diffs the committed IDL copies against
+the build (see [Program changes](#program-changes)).
 
 ```bash
-# Program
+# Program (jobs `rust` and `anchor`)
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+npm ci
 anchor build
-anchor test
-
-# Scripts / tests
+cargo build-sbf --manifest-path reference/casino_fair/Cargo.toml --tools-version v1.48 -- --locked
 npx tsc --noEmit -p .
 npm run lint
+anchor test --skip-build
 
-# Frontend
+# casino_fair (job `casino_fair`)
+cargo fmt --manifest-path reference/casino_fair/Cargo.toml --all -- --check
+cargo clippy --manifest-path reference/casino_fair/Cargo.toml --locked --all-targets -- -D warnings
+cargo clippy --manifest-path reference/casino_fair/Cargo.toml --locked --all-targets --features ephemeral,test-queue -- -D warnings
+cargo test --manifest-path reference/casino_fair/Cargo.toml --locked
+
+# SDK (job `packages`)
+cd packages/sdk
+npm ci
+npm run typecheck
+npm run build
+npm test
+npm run smoke
+npm audit --omit=dev --audit-level=critical
+npm pack --dry-run      # must list only package.json, README.md, LICENSE and dist/*
+cd ../..
+
+# Backend (job `packages`; needs the SDK built first)
+cd packages/backend
+npm ci
+npm run typecheck
+npm test
+npm audit --omit=dev --audit-level=critical
+cd ../..
+
+# Frontend (job `frontend`)
 cd casinovault-frontend
+npm ci
 npx tsc --noEmit
 npx eslint .
 npx next build --webpack
+npm audit --omit=dev --audit-level=critical
+cd ..
 ```
 
 ## Program changes
 
 - If you change instructions, accounts, events, or errors, regenerate and
-  commit the frontend IDL — CI fails if it drifts:
+  commit the IDL copies in the frontend and the SDK — CI fails if either
+  drifts:
 
   ```bash
   anchor build
   cp target/idl/casino_vault.json casinovault-frontend/src/idl/casino_vault.json
   cp target/types/casino_vault.ts casinovault-frontend/src/idl/casino_vault.ts
+  cp target/idl/casino_vault.json packages/sdk/src/idl/
+  cp target/types/casino_vault.ts packages/sdk/src/idl/
   ```
 
 - Account layout changes are breaking for existing deployments. Call them out

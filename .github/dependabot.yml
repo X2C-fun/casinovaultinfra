@@ -51,6 +51,46 @@ updates:
       - dependency-name: "@solana/web3.js"
         update-types: ["version-update:semver-minor"]
 
+  - package-ecosystem: npm
+    directory: /packages/sdk
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      sdk-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Must match the program and the Anchor CLI (0.32.x); see the root entry.
+      - dependency-name: "@coral-xyz/anchor"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "@solana/web3.js"
+        update-types: ["version-update:semver-minor"]
+
+  - package-ecosystem: npm
+    directory: /packages/backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Must match the program and the Anchor CLI (0.32.x); see the root entry.
+      - dependency-name: "@coral-xyz/anchor"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "@solana/web3.js"
+        update-types: ["version-update:semver-minor"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

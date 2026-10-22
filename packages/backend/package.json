@@ -1,0 +1,36 @@
+{
+  "name": "@x2c-fun/casinovault-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference settlement backend for the Casino Vault: balance holds, debit-at-approval withdrawals, a finalized-only event listener, and pool reconciliation.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts",
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "start": "tsx --env-file-if-exists=.env src/index.ts",
+    "api": "tsx --env-file-if-exists=.env src/api.ts",
+    "listener": "tsx --env-file-if-exists=.env src/listener/run.ts",
+    "reconcile": "tsx --env-file-if-exists=.env src/jobs/reconcile.ts",
+    "house-withdraw": "tsx --env-file-if-exists=.env src/cli/house-withdraw.ts",
+    "incident": "tsx --env-file-if-exists=.env src/cli/incident.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.98.4",
+    "@x2c-fun/casinovault-sdk": "file:../sdk",
+    "better-sqlite3": "^11.10.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.20.5",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.9"
+  }
+}

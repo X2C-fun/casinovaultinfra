@@ -1,0 +1,57 @@
+# casino_fair
+
+A provably-fair coin-flip reference program for Solana, built on MagicBlock
+VRF with Anchor 0.32.1. The player requests a flip, the VRF oracle delivers
+verifiable randomness through an authenticated callback, and the result is
+stored in the player's `Flip` account. It is a primitive, not a game: it does
+not move funds.
+
+> **Not audited. Not for mainnet funds.** This is a devnet reference. Read the
+> trust model in [docs/fairness.md](../../docs/fairness.md) before building on
+> it: the oracle can predict and withhold results, and cancel is a re-roll
+> vector unless cancel economics are independent of the outcome.
+
+## Standalone crate
+
+`casino_fair` is not a member of the root Cargo workspace and is not built by
+`anchor build`. It has its own committed `Cargo.lock`, which holds every
+transitive crate at a release that builds on Solana platform-tools v1.48
+(rustc 1.84.1). Always pass `--locked`, and **never run a plain
+`cargo update`** here: it would pull crates that need a newer rustc or the
+`edition2024` Cargo feature. Change pins one crate at a time with
+`cargo update -p <crate> --precise <version>`, then rebuild for SBF.
+
+## Build and test
+
+From the repository root (or drop `--manifest-path` inside this directory):
+
+```bash
+# host unit tests, lints, formatting
+cargo test   --manifest-path reference/casino_fair/Cargo.toml --locked
+cargo clippy --manifest-path reference/casino_fair/Cargo.toml --locked --all-targets -- -D warnings
+cargo clippy --manifest-path reference/casino_fair/Cargo.toml --locked --all-targets --features ephemeral,test-queue -- -D warnings
+cargo fmt    --manifest-path reference/casino_fair/Cargo.toml --all -- --check
+
+# SBF program (Solana 2.3.x CLI, platform-tools v1.48)
+cargo build-sbf --manifest-path reference/casino_fair/Cargo.toml --tools-version v1.48 -- --locked
+```
+
+CI runs all of these. The host tests cover the state machine; the VRF CPI and
+the callback signer gate need a devnet run (see
+[docs/fairness.md](../../docs/fairness.md#testing)).
+
+## Features
+
+| Feature | Effect |
+| ------- | ------ |
+| `ephemeral` | Also accept MagicBlock's ephemeral-rollup VRF queue. Only useful if the flip account is delegated to an ephemeral rollup, which this program does not do. |
+| `test-queue` | Also accept MagicBlock's test queues. Test oracles may use known keys, so outcomes are **predictable**: local development only, never for value. |
+
+By default only the base-layer queue (`DEFAULT_QUEUE`) is accepted. The usual
+Anchor features (`cpi`, `no-entrypoint`, `no-idl`, `no-log-ix-name`,
+`idl-build`) are also defined.
+
+## More
+
+Full detail (instructions, lifecycle, oracle queues, events, devnet steps,
+known limitations): [docs/fairness.md](../../docs/fairness.md).

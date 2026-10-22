@@ -18,7 +18,10 @@
     "accept-admin": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/accept_admin.ts",
     "set-limits": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/set_limits.ts",
     "lint": "prettier --check \"tests/**/*.ts\" \"scripts/**/*.ts\"",
-    "lint:fix": "prettier --write \"tests/**/*.ts\" \"scripts/**/*.ts\""
+    "lint:fix": "prettier --write \"tests/**/*.ts\" \"scripts/**/*.ts\"",
+    "sdk:build": "cd packages/sdk && npm run build",
+    "sdk:test": "cd packages/sdk && npm test",
+    "backend:test": "cd packages/backend && npm test"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

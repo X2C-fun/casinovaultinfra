@@ -16,10 +16,14 @@ guarantees, and what it deliberately does not do yet.
 │       ├── state.rs            # VaultState
 │       ├── events.rs / errors.rs / constants.rs / utils.rs
 ├── programs/cpi_probe/         # TEST FIXTURE ONLY: forwards vault calls via CPI; never deploy
+├── reference/casino_fair/      # VRF coin-flip reference; standalone crate (own Cargo.lock), not built by `anchor build`
+├── packages/sdk/               # @x2c-fun/casinovault-sdk: TypeScript SDK (publishable)
+├── packages/backend/           # reference settlement backend (private, not published)
 ├── scripts/                    # CLI scripts (read / initialize / deposit / withdraw / set_paused / propose_admin / accept_admin / set_limits)
 ├── tests/                      # anchor test integration suite
 ├── casinovault-frontend/       # Next.js reference UI (deposit + admin co-signed withdraw)
-├── docs/                       # architecture, deployment, backend integration, reference, troubleshooting
+├── docs/                       # architecture, deployment, backend integration, reference, fairness, releasing, troubleshooting
+├── AGENTS.md                   # orientation and rules for coding agents (and humans)
 ├── .github/                    # CI workflow, Dependabot, issue / PR templates, CODEOWNERS
 ├── SECURITY.md                 # vulnerability reporting, key powers, accepted advisories
 ├── CONTRIBUTING.md / CODE_OF_CONDUCT.md / CHANGELOG.md / LICENSE (MIT)

@@ -131,7 +131,10 @@ before signing and use its ID as `request_id`. A `WithdrawEvent` with no
 matching hold or house record is exactly what a leaked admin key produces, so
 it must raise the incident in step 6, whoever the recipient is.
 
-Rules for the listener:
+Rules for the listener. [`packages/backend`](../packages/backend) is a
+reference implementation of them, and the SDK's `decodeVaultTransactionEvents`
+and `vaultEventKey` ([`packages/sdk`](../packages/sdk/README.md)) handle the
+decoding, the failed-transaction check and the key below.
 
 - **Ignore every transaction whose `meta.err` is set.** A failed transaction is
   rolled back, but its logs and its inner instructions still contain every
@@ -147,11 +150,13 @@ Rules for the listener:
 - `DepositEvent` and `WithdrawEvent` arrive twice per instruction, once in the
   logs (`emit!`) and once as a self-CPI (`emit_cpi!`). Consume **one** of the
   two sources (see [Events and errors](reference.md#events-and-errors)).
-- **De-duplicate by source, never by contents.** Use
-  `(transaction signature, instruction index, event index)` as a unique key
-  in your database. Two identical deposits in one slot, or one transaction,
-  produce identical events, so content-based de-duplication drops one; no
-  de-duplication at all credits twice when the listener restarts or backfills.
+- **De-duplicate by position, never by contents.** Use
+  `(transaction signature, source, instruction index, event index)` as a
+  unique key in your database, and consume one source so each event is
+  stored once (`vaultEventKey` builds this key). Two identical deposits in
+  one slot, or one transaction, produce identical events, so content-based
+  de-duplication drops one; no de-duplication at all credits twice when the
+  listener restarts or backfills.
 - Never settle a hold by amount or wallet alone; match on `request_id` first
   and then check `user` and `amount` (see step 6).
 - Events from before a v0.1 → v0.2 upgrade use the v0.1 layout (`WithdrawEvent`

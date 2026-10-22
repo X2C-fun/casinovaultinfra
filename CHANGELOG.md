@@ -6,6 +6,72 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **TypeScript SDK** (`packages/sdk`, `@x2c-fun/casinovault-sdk` 0.1.0, not yet
+  published): the v0.2.0 IDL and types, PDAs, builders for every instruction
+  (u64 arguments range-checked), account reads, pool reconciliation, and:
+  - `buildWithdrawTransaction` and `assertSafeWithdrawTx`, the same pre-sign
+    check as the frontend (`withdraw` discriminator, amount, `request_id`,
+    user, fee payer, every account, ComputeBudget instructions with the
+    priority fee capped at 0.001 SOL). The builder refuses what the check would
+    reject, and the check rejects versioned transactions.
+  - `decodeVaultTransactionEvents`, which reads one event source (the
+    `emit_cpi!` copies by default, which log truncation cannot drop), returns
+    nothing for a failed transaction, throws when the RPC response is missing
+    data or an event can't be decoded, and gives each event a position for
+    `vaultEventKey`.
+  - ESM and CommonJS builds that load in plain Node, and no reliance on Node
+    globals in the browser.
+  - The package ships `LICENSE` (MIT) and declares `engines.node >=20.17`,
+    `homepage` and `bugs`.
+- **Reference settlement backend** (`packages/backend`, private): implements
+  `docs/backend-integration.md` on SQLite.
+  - Approval debits a hold before signing; the destination must be the owner's
+    wallet; request IDs are random u64s.
+  - The HTTP API requires a bearer token, binds to localhost by default, and
+    takes no house withdrawals. Those go through an operator CLI and can only
+    pay the admin wallet.
+  - The listener reads finalized transactions back to its cursor and counts a
+    scan as complete only when it has seen the cursor itself. Pages break on
+    slot boundaries, so RPC nodes that order a slot differently can't make it
+    skip a transaction. It applies each event and its de-duplication in one
+    database transaction, processes oldest first, and stops without moving
+    its cursor when the RPC is missing data or lagging (`minContextSlot`). A
+    listener lease keeps it to one per database, and the database is bound to
+    the cluster's genesis hash and the program ID.
+  - Any withdrawal that doesn't match its hold (wrong user, amount or
+    signature, a replayed `request_id`, or an undecodable event) opens a
+    durable kill-switch that blocks approvals and hold releases, and pauses the
+    vault, retrying until it is paused. A cursor the RPC can't find halts the
+    listener and alerts, and becomes an incident if it persists.
+  - Holds are released only after a cycle that processed everything back to
+    the cursor, with the blockhash expired at the finalized height read before
+    that scan, and only while the pool balance still covers every ledger
+    liability (a backstop, not a proof: a concurrent deposit can mask a
+    shortfall). The listener needs an RPC with full transaction history.
+  - Scripts load `.env` (Node 22.9 or later).
+- **Provable-fairness primitive** (`reference/casino_fair`, program ID
+  `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`, not deployed): a minimal coin
+  flip on MagicBlock VRF (`ephemeral-rollups-sdk` 0.17.3). The callback is
+  authenticated by the VRF program's identity and settles at most once, bound
+  to the round, seed and request slot. The player can `cancel_flip` after 150
+  slots and `close_flip` when nothing is in flight. Only the base-layer VRF
+  queue is accepted unless the `ephemeral` or `test-queue` feature is on. It
+  is a standalone crate with its own pinned `Cargo.lock`, outside the Cargo
+  workspace and `anchor build`, and builds for SBF on the pinned toolchain.
+  Its release profile matches the vault's (`overflow-checks = true`), it does
+  not enable Anchor's unused `event-cpi` feature, and it has its own
+  [README](reference/casino_fair/README.md).
+- `AGENTS.md`, an orientation guide for coding agents, and
+  [Releasing the SDK](docs/releasing.md).
+- CI jobs for the SDK and backend (typecheck, build, tests, a load check of
+  both module formats, `npm audit --omit=dev --audit-level=critical`, and a
+  check that the SDK tarball holds only `package.json`, `README.md`, `LICENSE`
+  and `dist/*`) and for `casino_fair` (fmt, clippy, host tests, and an SBF
+  build on platform-tools v1.48 in the `anchor` job), plus a check that the
+  SDK's IDL matches the build. Dependabot covers both packages.
+
 ### Fixed
 
 - Scripts: `sendWithRetry` could build and sign a second transaction (a
@@ -32,6 +98,19 @@ All notable changes to this project are documented here. The format follows
 - Docs: incident response in `docs/backend-integration.md`, including the
   upgrade authority's one-transaction freeze (a 1-lamport per-transaction cap;
   it cannot pause) alongside `propose_admin` → `accept_admin` → pause.
+
+### Known limitations
+
+- None of the new components is audited. The backend's API token stands in for
+  real player authentication: a deployment must take the player from its own
+  session, never from the request body.
+- `casino_fair`'s oracle can predict an outcome and withhold it (it cannot bias
+  it), and `cancel_flip` is a re-roll vector for anything staked on a flip;
+  see `docs/fairness.md`. Its VRF request and callback are not covered by
+  tests, since they need the live VRF program.
+- `casino_fair` builds for SBF only from its committed `Cargo.lock`, which
+  holds transitive crates at releases the pinned toolchain supports. Do not run
+  a plain `cargo update` on it.
 
 ## [0.2.0] - 2026-10-19
 

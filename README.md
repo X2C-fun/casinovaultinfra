@@ -14,7 +14,7 @@ backend database, which is driven by the events emitted here.
 | Program ID        | `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7` |
 | Anchor            | `0.32.1`                                       |
 | Solana / Agave    | `2.3.13`                                       |
-| Rust (SBF)        | `1.84.0`, edition 2021                         |
+| Rust (SBF)        | `1.84.1` (platform-tools v1.48), edition 2021  |
 | Deployed clusters | devnet (v0.2.0, upgraded in slot 512813387)    |
 
 > **Status: not audited, not for mainnet funds.** The devnet program runs
@@ -43,7 +43,8 @@ backend database, which is driven by the events emitted here.
 
 Run the program and its integration tests on a local validator. You need the
 Rust, Solana 2.3.13 and Anchor 0.32.1 toolchains
-([install steps](docs/deployment.md#step-1--install-the-toolchain)) and Node.js 20 or later.
+([install steps](docs/deployment.md#step-1--install-the-toolchain)), Node.js 22 (as CI; 20.17
+or later works) and npm 11 (CI pins 11.21.1).
 
 ```bash
 git clone https://github.com/X2C-fun/casinovaultinfra.git
@@ -65,7 +66,28 @@ To deploy your own copy to devnet, follow [Deployment](docs/deployment.md).
 | [Backend integration](docs/backend-integration.md) | Admin key handling, reads, the safe withdraw flow, listener rules |
 | [Program reference](docs/reference.md) | Instructions, accounts, signers, events, error codes |
 | [Reference frontend](docs/frontend.md) | The Next.js demo app and its environment variables |
+| [Provable fairness (`casino_fair`)](docs/fairness.md) | The MagicBlock-VRF coin-flip reference program and its trust model |
+| [Releasing the SDK](docs/releasing.md) | Publishing `@x2c-fun/casinovault-sdk` to npm |
 | [Testing and troubleshooting](docs/testing-and-troubleshooting.md) | Running the tests, common errors and fixes |
+
+## Packages and reference components
+
+Beyond the on-chain program, the repo ships the pieces an integrator needs to
+build a game on the vault:
+
+| Component | Path | What it is |
+| --------- | ---- | ---------- |
+| **TypeScript SDK** | [`packages/sdk`](packages/sdk) | `@x2c-fun/casinovault-sdk` — typed IDL, PDAs, instruction builders, a safe withdraw-tx builder + client assertion, event decoding, and pool reconciliation. Publishable to npm. |
+| **Settlement backend** | [`packages/backend`](packages/backend) | A reference backend implementing [the withdraw flow](docs/backend-integration.md): balance holds, debit-at-approval, a finalized-only event listener, an incident kill-switch and pause, and reconciliation (SQLite). Private; not published. |
+| **Fairness primitive** | [`reference/casino_fair`](reference/casino_fair) | A provably-fair coin flip built on MagicBlock VRF. See [docs/fairness.md](docs/fairness.md). Built standalone with its own `Cargo.lock`. |
+
+These are devnet references, not production-hardened or audited. The backend's
+API token is a placeholder for real player authentication, and `casino_fair`
+is a primitive, not a game. Read each component's README before building on it.
+
+- **AI coding agents / fast onboarding:** [`AGENTS.md`](AGENTS.md) — the whole
+  protocol, build/test commands, and the rules that keep it correct, in one file.
+- **Publishing the SDK:** [Releasing the SDK](docs/releasing.md).
 
 **Building a backend on this?** Read
 [Backend withdraw flow](docs/backend-integration.md#backend-withdraw-flow) and

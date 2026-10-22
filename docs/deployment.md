@@ -29,7 +29,8 @@ export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 cargo install --git https://github.com/coral-xyz/anchor --tag v0.32.1 avm --locked --force
 avm install 0.32.1 && avm use 0.32.1
 
-# Node.js >= 20 (https://nodejs.org)
+# Node.js 22 (as CI; 20.17 or later works) and npm 11 (CI pins 11.21.1)
+# https://nodejs.org, then: npm install -g npm@11
 ```
 
 Verify:
