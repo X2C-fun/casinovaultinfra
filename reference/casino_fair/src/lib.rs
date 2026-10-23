@@ -69,7 +69,7 @@ pub use events::*;
 pub use instructions::*;
 pub use state::{CoinSide, Flip, FlipStatus};
 
-declare_id!("2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG");
+declare_id!("CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps");
 
 #[program]
 pub mod casino_fair {

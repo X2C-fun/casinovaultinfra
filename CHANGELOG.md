@@ -6,13 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- SDK 0.1.1: `SdkWallet` accepts the wallet adapter's `AnchorWallet` without a
-  cast (its sign methods are now constrained to `Transaction |
-  VersionedTransaction`, as Anchor's own `Wallet` is). The package also
-  exports `./package.json`, which some tools read, and its `repository.url`
-  uses the form npm expects (npm rewrote it when 0.1.0 was published).
+- **`casino_fair` on devnet** under a new program ID owned by this project,
+  `CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps` (deployed in slot 514372450,
+  upgrade authority `Hithh6rJmGiWRdkBsUKqJyDMnEos1fEb5baumpbYwEhr`). It replaces
+  the 0.3.0 placeholder ID `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`, whose
+  keypair this project doesn't hold. The IDL is on-chain (IDL account
+  `F2LaEMG9jJ6BpiA9sp1PLtaqVV66CB78pT7xhFnCqmwj`) and committed at
+  `reference/casino_fair/idl/casino_fair.json`.
+- `reference/casino_fair/scripts/devnet-smoke.ts`: a live request → VRF
+  callback round trip, plus on-chain checks that a spoofed callback (2012), a
+  non-allowed queue (6003), an early cancel (6005) and a close while requested
+  (6006) are refused. It passed 13/13; the MagicBlock oracle settled each
+  request 3 to 4 slots after it landed. See
+  [Devnet deployment](docs/fairness.md#devnet-deployment).
 
 ### Changed
 
@@ -29,6 +37,14 @@ All notable changes to this project are documented here. The format follows
   check covers `packages/sdk/src/idl/` only. A program interface change reaches
   the frontend through an SDK release and a dependency bump
   (`docs/releasing.md`); Dependabot ignores minor SDK bumps for the frontend.
+
+### Fixed
+
+- SDK 0.1.1: `SdkWallet` accepts the wallet adapter's `AnchorWallet` without a
+  cast (its sign methods are now constrained to `Transaction |
+  VersionedTransaction`, as Anchor's own `Wallet` is). The package also
+  exports `./package.json`, which some tools read, and its `repository.url`
+  uses the form npm expects (npm rewrote it when 0.1.0 was published).
 
 ## [0.3.0] - 2026-10-24
 

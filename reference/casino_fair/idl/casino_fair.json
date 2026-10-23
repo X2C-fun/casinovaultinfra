@@ -1,0 +1,800 @@
+{
+  "address": "CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps",
+  "metadata": {
+    "name": "casino_fair",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Provably-fair coin-flip reference program: verifiable randomness via MagicBlock VRF with an authenticated settlement callback."
+  },
+  "instructions": [
+    {
+      "name": "callback_flip",
+      "docs": [
+        "VRF callback. Invoked by the oracle (never the client). Authenticated by",
+        "the `#[vrf_callback]` identity signer, bound to the flip account and to",
+        "the `(client_seed, round, requested_slot)` of the request, and",
+        "idempotent: a duplicate or stale callback is a no-op."
+      ],
+      "discriminator": [
+        139,
+        246,
+        127,
+        240,
+        214,
+        83,
+        191,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "vrf_program_identity",
+          "docs": [
+            "Scoped VRF identity PDA, bound to this program. Its presence as a signer proves",
+            "the callback was issued by the VRF program for this program."
+          ],
+          "signer": true
+        },
+        {
+          "name": "flip",
+          "docs": [
+            "The flip being settled. Re-derived from the player recorded in the",
+            "account, so the oracle-supplied account must be the canonical PDA — the",
+            "callback cannot be redirected onto a different flip."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "flip.player",
+                "account": "Flip"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "randomness",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "client_seed",
+          "type": "u8"
+        },
+        {
+          "name": "round",
+          "type": "u64"
+        },
+        {
+          "name": "requested_slot",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "cancel_flip",
+      "docs": [
+        "Player-only: abandons an unfulfilled request once",
+        "[`CANCEL_TIMEOUT_SLOTS`] have passed since it was made. Bumps the round",
+        "so a late callback is ignored. A re-roll vector if stakes are attached."
+      ],
+      "discriminator": [
+        218,
+        198,
+        100,
+        127,
+        6,
+        178,
+        176,
+        101
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "docs": [
+            "The player. Only the owner of the flip can cancel it."
+          ],
+          "signer": true
+        },
+        {
+          "name": "flip",
+          "docs": [
+            "The player's flip PDA; the seeds bind it to `player`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_flip",
+      "docs": [
+        "Player-only: closes the flip account and returns its rent. Refused while",
+        "a request is in flight."
+      ],
+      "discriminator": [
+        204,
+        88,
+        101,
+        190,
+        213,
+        234,
+        187,
+        205
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "docs": [
+            "The player. Receives the account's lamports."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "flip",
+          "docs": [
+            "The player's flip PDA; the seeds bind it to `player`. Anchor's `close`",
+            "zeroes the data and moves all lamports to `player` after the handler."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_flip",
+      "docs": [
+        "Creates the caller's singleton `Flip` PDA in the `Idle` state. Run once",
+        "per player (again only after `close_flip`)."
+      ],
+      "discriminator": [
+        184,
+        250,
+        114,
+        158,
+        200,
+        93,
+        110,
+        249
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "docs": [
+            "The player. Pays rent for their own flip account and is bound into its",
+            "PDA seeds, so one player can never create another player's account."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "flip",
+          "docs": [
+            "The player's singleton flip PDA, `[\"flip\", player]`. `init` makes this",
+            "run once per player (again only after `close_flip`)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "request_flip",
+      "docs": [
+        "Commits `client_seed` and `guess` (0 = HEADS, 1 = TAILS), bumps the",
+        "round and asks the VRF oracle for randomness. Rejected while a request",
+        "is already in flight — no concurrent flips."
+      ],
+      "discriminator": [
+        131,
+        251,
+        194,
+        110,
+        185,
+        9,
+        156,
+        211
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "The player, and the payer of the VRF request. Bound into the flip PDA",
+            "seeds, so a request can only be made for the signer's own flip."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "flip",
+          "docs": [
+            "The player's flip account. `bump = flip.bump` with the player-keyed",
+            "seeds ties this account to `payer`: a different signer re-derives a",
+            "different PDA and fails the seeds check."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  108,
+                  105,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "payer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle_queue",
+          "docs": [
+            "[`is_allowed_oracle_queue`]: only the base-layer `DEFAULT_QUEUE` unless",
+            "the `ephemeral` / `test-queue` cargo features opt in to more."
+          ],
+          "writable": true
+        },
+        {
+          "name": "program_identity",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_program",
+          "address": "Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz"
+        },
+        {
+          "name": "slot_hashes",
+          "address": "SysvarS1otHashes111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "client_seed",
+          "type": "u8"
+        },
+        {
+          "name": "guess",
+          "type": "u8"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Flip",
+      "discriminator": [
+        13,
+        33,
+        94,
+        130,
+        154,
+        238,
+        111,
+        35
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "FlipCancelledEvent",
+      "discriminator": [
+        70,
+        181,
+        135,
+        255,
+        62,
+        150,
+        70,
+        11
+      ]
+    },
+    {
+      "name": "FlipRequestedEvent",
+      "discriminator": [
+        243,
+        252,
+        202,
+        232,
+        42,
+        137,
+        22,
+        108
+      ]
+    },
+    {
+      "name": "FlipSettledEvent",
+      "discriminator": [
+        24,
+        79,
+        220,
+        140,
+        138,
+        233,
+        189,
+        132
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidGuess",
+      "msg": "Invalid guess: must be 0 (HEADS) or 1 (TAILS)"
+    },
+    {
+      "code": 6001,
+      "name": "RequestInProgress",
+      "msg": "A randomness request is already in flight for this player"
+    },
+    {
+      "code": 6002,
+      "name": "MathOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidOracleQueue",
+      "msg": "Unrecognised VRF oracle queue"
+    },
+    {
+      "code": 6004,
+      "name": "NoRequestInFlight",
+      "msg": "No randomness request is in flight for this player"
+    },
+    {
+      "code": 6005,
+      "name": "CancelTooEarly",
+      "msg": "The cancel timeout has not elapsed yet"
+    },
+    {
+      "code": 6006,
+      "name": "CloseWhileRequested",
+      "msg": "Cannot close a flip while a randomness request is in flight"
+    }
+  ],
+  "types": [
+    {
+      "name": "CoinSide",
+      "docs": [
+        "The two sides of the coin. Stored as a 1-byte enum.",
+        "",
+        "The numeric mapping is part of the client contract: `0 == HEADS`,",
+        "`1 == TAILS`. `guess` and `last_result` both use it, so \"did the player",
+        "win\" is a plain equality."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Heads"
+          },
+          {
+            "name": "Tails"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Flip",
+      "docs": [
+        "Per-player flip account, PDA `[\"flip\", player]`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "docs": [
+              "Owner of this flip. The request signer must match it, and the callback",
+              "re-derives the PDA from it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Lifecycle state. Settlement is only accepted while `Requested`."
+            ],
+            "type": {
+              "defined": {
+                "name": "FlipStatus"
+              }
+            }
+          },
+          {
+            "name": "round",
+            "docs": [
+              "Monotonic request nonce, bumped on every `request_flip` and again on",
+              "`cancel_flip`. The callback carries the round it was issued for; a",
+              "mismatch means the callback is stale and is ignored."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "client_seed",
+            "docs": [
+              "Client-chosen byte committed for the live request and echoed back by",
+              "the callback. It is a request tag that the callback must match, and it",
+              "is folded into the VRF `caller_seed`; at one byte it adds no meaningful",
+              "entropy (see the repository's `docs/fairness.md`)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "guess",
+            "docs": [
+              "The side the player bet on for the live request."
+            ],
+            "type": {
+              "defined": {
+                "name": "CoinSide"
+              }
+            }
+          },
+          {
+            "name": "bet",
+            "docs": [
+              "Reference-only stake. **Not escrowed by this program.** A real game sets",
+              "this when it binds the flip to a `casino_vault` settlement; here it marks",
+              "where that binding goes and is left `0`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_result",
+            "docs": [
+              "Coin side the last settled round landed on. Meaningful once `status` has",
+              "reached `Settled` at least once."
+            ],
+            "type": {
+              "defined": {
+                "name": "CoinSide"
+              }
+            }
+          },
+          {
+            "name": "last_randomness",
+            "docs": [
+              "The exact VRF output the last round was settled with, kept so the result",
+              "can be independently re-derived and audited."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "won",
+            "docs": [
+              "Whether the player won the last settled round (`last_result == guess`)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Canonical PDA bump, stored so no instruction re-derives it or accepts a",
+              "caller-supplied bump."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "requested_slot",
+            "docs": [
+              "Slot the live (or most recent) request was made in. Starts the cancel",
+              "timeout, and is forwarded to the callback as a second request binding so",
+              "a late callback for a cancelled request can never settle a later one —",
+              "not even after `close_flip` + `init_flip` restarts `round` at zero."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Zeroed space for future fields, so they can be added without a",
+              "reallocation. (Was 64 bytes; 8 went to `requested_slot`, so the account",
+              "size is unchanged.)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                56
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FlipCancelledEvent",
+      "docs": [
+        "Emitted by `cancel_flip` when the player abandons an unfulfilled request",
+        "after the timeout. No outcome exists for `round`; a late callback for it is",
+        "ignored."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "docs": [
+              "Player whose flip this is."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "docs": [
+              "The request nonce that was cancelled."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "requested_slot",
+            "docs": [
+              "Slot the cancelled request was made in."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FlipRequestedEvent",
+      "docs": [
+        "Emitted by `request_flip` when a randomness request is accepted.",
+        "",
+        "Acceptance is not fulfillment: seeing this event means the oracle was asked,",
+        "not that the flip has a result. The matching [`FlipSettledEvent`] (same",
+        "`player` + `round`) or [`FlipCancelledEvent`] ends the request."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "docs": [
+              "Player whose flip this is."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "docs": [
+              "Request nonce this flip was issued under."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "guess",
+            "docs": [
+              "Side the player bet on (0 = HEADS, 1 = TAILS)."
+            ],
+            "type": {
+              "defined": {
+                "name": "CoinSide"
+              }
+            }
+          },
+          {
+            "name": "requested_slot",
+            "docs": [
+              "Slot the request was made in; the cancel timeout counts from here."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FlipSettledEvent",
+      "docs": [
+        "Emitted by `callback_flip` when a round is settled.",
+        "",
+        "Emitted at most once per request: the callback's guard makes a duplicate or",
+        "stale delivery a no-op that emits nothing."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "docs": [
+              "Player whose flip this is."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "docs": [
+              "Request nonce that was settled; matches the earlier",
+              "[`FlipRequestedEvent`]."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "guess",
+            "docs": [
+              "Side the player had bet on."
+            ],
+            "type": {
+              "defined": {
+                "name": "CoinSide"
+              }
+            }
+          },
+          {
+            "name": "result",
+            "docs": [
+              "Side the verifiable randomness landed on."
+            ],
+            "type": {
+              "defined": {
+                "name": "CoinSide"
+              }
+            }
+          },
+          {
+            "name": "won",
+            "docs": [
+              "Whether the player won (`result == guess`)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Unix timestamp of the enclosing slot."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FlipStatus",
+      "docs": [
+        "Where a flip is in its lifecycle. Stored as a 1-byte enum; new variants are",
+        "only ever appended.",
+        "",
+        "```text",
+        "Idle ──request──► Requested ──callback──► Settled ──request──► Requested …",
+        "│",
+        "└──cancel (after CANCEL_TIMEOUT_SLOTS)──► Cancelled ──request──► …",
+        "```",
+        "",
+        "Only `Requested` accepts a settlement, which is what makes a duplicate or",
+        "stale callback a no-op. Every state except `Requested` may be closed."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Idle"
+          },
+          {
+            "name": "Requested"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    }
+  ]
+}

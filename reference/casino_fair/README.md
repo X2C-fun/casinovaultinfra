@@ -37,8 +37,41 @@ cargo build-sbf --manifest-path reference/casino_fair/Cargo.toml --tools-version
 ```
 
 CI runs all of these. The host tests cover the state machine; the VRF CPI and
-the callback signer gate need a devnet run (see
-[docs/fairness.md](../../docs/fairness.md#testing)).
+the callback signer gate are checked by the devnet smoke test below.
+
+## Devnet deployment
+
+| Item | Value |
+| ---- | ----- |
+| Program ID | `CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps` |
+| Upgrade authority | `Hithh6rJmGiWRdkBsUKqJyDMnEos1fEb5baumpbYwEhr` |
+| Deployed | slot 514372450 (default features: base-layer `DEFAULT_QUEUE` only) |
+| IDL account | `F2LaEMG9jJ6BpiA9sp1PLtaqVV66CB78pT7xhFnCqmwj` |
+| IDL file | [`idl/casino_fair.json`](idl/casino_fair.json) (same as the on-chain IDL) |
+
+Clients can load `idl/casino_fair.json` with `new anchor.Program(idl, provider)`,
+or fetch it with `anchor idl fetch CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps
+--provider.cluster devnet`.
+
+### Devnet smoke test
+
+[`scripts/devnet-smoke.ts`](scripts/devnet-smoke.ts) runs a live request →
+VRF callback round trip against the deployed program, plus the negative checks
+a local validator cannot run: a non-allowed queue (6003), cancel before the
+timeout (6005), close while requested (6006), and a spoofed `callback_flip`
+signed by the player instead of the VRF identity (Anchor 2012). From the
+repository root, after `npm install`:
+
+```bash
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+ANCHOR_WALLET=./keys/<player>.json \
+npx ts-node --compiler-options '{"module":"commonjs"}' \
+  reference/casino_fair/scripts/devnet-smoke.ts
+```
+
+On 2026-10-24 it passed 13/13 checks. The MagicBlock oracle fulfilled each
+request 3 to 4 slots (about 1 s) after it landed. The signatures are listed in
+[docs/fairness.md](../../docs/fairness.md#devnet-smoke-test).
 
 ## Features
 
@@ -53,5 +86,5 @@ Anchor features (`cpi`, `no-entrypoint`, `no-idl`, `no-log-ix-name`,
 
 ## More
 
-Full detail (instructions, lifecycle, oracle queues, events, devnet steps,
-known limitations): [docs/fairness.md](../../docs/fairness.md).
+Full detail (instructions, lifecycle, oracle queues, events, devnet steps and
+results, known limitations): [docs/fairness.md](../../docs/fairness.md).
