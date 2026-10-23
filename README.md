@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/X2C-fun/casinovaultinfra/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/X2C-fun/casinovaultinfra/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@x2c-fun/casinovault-sdk.svg)](https://www.npmjs.com/package/@x2c-fun/casinovault-sdk)
 
 An Anchor program that holds SOL for a casino backend in **one shared pool**. It
 is a custody layer only: it moves SOL in and out under strict authority checks
@@ -77,7 +78,7 @@ build a game on the vault:
 
 | Component | Path | What it is |
 | --------- | ---- | ---------- |
-| **TypeScript SDK** | [`packages/sdk`](packages/sdk) | `@x2c-fun/casinovault-sdk` — typed IDL, PDAs, instruction builders, a safe withdraw-tx builder + client assertion, event decoding, and pool reconciliation. Publishable to npm. |
+| **TypeScript SDK** | [`packages/sdk`](packages/sdk) | [`@x2c-fun/casinovault-sdk`](https://www.npmjs.com/package/@x2c-fun/casinovault-sdk) on npm — typed IDL, PDAs, instruction builders, a safe withdraw-tx builder + client assertion, event decoding, and pool reconciliation. |
 | **Settlement backend** | [`packages/backend`](packages/backend) | A reference backend implementing [the withdraw flow](docs/backend-integration.md): balance holds, debit-at-approval, a finalized-only event listener, an incident kill-switch and pause, and reconciliation (SQLite). Private; not published. |
 | **Fairness primitive** | [`reference/casino_fair`](reference/casino_fair) | A provably-fair coin flip built on MagicBlock VRF. See [docs/fairness.md](docs/fairness.md). Built standalone with its own `Cargo.lock`. |
 
