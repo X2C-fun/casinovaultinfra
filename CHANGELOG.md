@@ -25,7 +25,7 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **Frontend uses the published SDK.** `casinovault-frontend` depends on
-  `@x2c-fun/casinovault-sdk` `^0.1.0` from npm for the IDL, PDAs, program
+  `@x2c-fun/casinovault-sdk` `^0.1.1` from npm for the IDL, PDAs, program
   construction, amount formatting, deposits, the demo route's withdraw
   transaction (`buildWithdrawTransaction`) and the pre-sign check
   (`assertSafeWithdrawTx`, given the app's own `PROGRAM_ID`). Its duplicate
@@ -40,7 +40,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- SDK 0.1.1: `SdkWallet` accepts the wallet adapter's `AnchorWallet` without a
+- SDK 0.1.1 ([on npm](https://www.npmjs.com/package/@x2c-fun/casinovault-sdk), tag
+  `sdk-v0.1.1`): `SdkWallet` accepts the wallet adapter's `AnchorWallet` without a
   cast (its sign methods are now constrained to `Transaction |
   VersionedTransaction`, as Anchor's own `Wallet` is). The package also
   exports `./package.json`, which some tools read, and its `repository.url`
