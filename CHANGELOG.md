@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-24
+
+`casino_fair` is deployed on devnet under a project-owned program ID and
+tested live against the MagicBlock VRF oracle; the demo frontend uses the
+published SDK; SDK 0.1.1 fixes its wallet type. The vault program is
+unchanged. Not audited; not for mainnet funds.
+
+| Component | Version |
+| --- | --- |
+| `casino_vault` program | 0.2.0 (unchanged, devnet `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7`) |
+| `@x2c-fun/casinovault-sdk` | 0.1.1 on npm (tag `sdk-v0.1.1`) |
+| `packages/backend` | 0.1.0, private reference |
+| `reference/casino_fair` | 0.1.0, devnet `CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps` (optional example) |
+
 ### Added
 
 - **`casino_fair` on devnet** under a new program ID owned by this project,
@@ -40,6 +54,7 @@ All notable changes to this project are documented here. The format follows
   check covers `packages/sdk/src/idl/` only. A program interface change reaches
   the frontend through an SDK release and a dependency bump
   (`docs/releasing.md`); Dependabot ignores minor SDK bumps for the frontend.
+- CI: `Swatinem/rust-cache` 2.9.3.
 
 ### Fixed
 
@@ -387,7 +402,8 @@ CI:
   `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`; that deployment is no longer
   maintained (see 0.1.1).
 
-[Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/X2C-fun/casinovaultinfra/compare/a0da5b8...v0.1.1
