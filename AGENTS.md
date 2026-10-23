@@ -122,6 +122,13 @@ cargo test --manifest-path reference/casino_fair/Cargo.toml --locked
 cargo clippy --manifest-path reference/casino_fair/Cargo.toml --locked --all-targets -- -D warnings
 cargo build-sbf --manifest-path reference/casino_fair/Cargo.toml --tools-version v1.48 -- --locked
 ```
+Deployed on devnet as `CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps` (IDL in
+`reference/casino_fair/idl/`). Live check against the VRF oracle (needs a funded
+devnet key; not run in CI):
+```bash
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=./keys/<player>.json \
+  npx ts-node --compiler-options '{"module":"commonjs"}' reference/casino_fair/scripts/devnet-smoke.ts
+```
 
 **Frontend**
 ```bash

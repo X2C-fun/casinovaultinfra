@@ -12,7 +12,10 @@ randomness that the player cannot predict and the oracle cannot bias. The oracle
 out what that means. It is a *primitive*, not a game: it does not move funds.
 
 - **Program:** `reference/casino_fair`
-- **Program ID:** `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG`
+- **Program ID (devnet):** `CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps`
+  (see [Devnet deployment](#devnet-deployment))
+- **IDL:** [`reference/casino_fair/idl/casino_fair.json`](../reference/casino_fair/idl/casino_fair.json),
+  also published on-chain
 - **State:** one `Flip` PDA per player, `["flip", player]`.
 
 > **Standalone crate, by design.** `casino_fair` is intentionally **not** a
@@ -52,8 +55,9 @@ lifecycle emits an event (`FlipRequestedEvent`, `FlipSettledEvent`,
   this program's scoped identity PDA. That signer is the whole security of the
   callback: without the macro the instruction still compiles, but anyone could
   call `callback_flip` with randomness of their choosing and settle a flip in
-  their favour. There is no automated test of this gate yet (see
-  [Testing](#testing)); check it by reading `CallbackFlip`.
+  their favour. The host tests cannot reach this gate; the
+  [devnet smoke test](#devnet-smoke-test) checks it live (a spoofed callback
+  is refused with Anchor's `ConstraintAddress`, 2012).
 - **Settled at most once, by the right callback.** A callback settles only if
   the flip is `Requested` **and** its `(round, client_seed, requested_slot)`
   match the live request. A duplicate, a callback for a cancelled or superseded
@@ -178,8 +182,8 @@ Why the default is narrow:
 - Test queues may use known oracle keys, which makes outcomes predictable.
   **Never** enable `test-queue` for a deployment that settles value.
 
-Only `DEFAULT_QUEUE` on **Solana devnet** has been the intended target of this
-reference. **Mainnet queue addresses are unverified**: the SDK exposes a single
+Only `DEFAULT_QUEUE` on **Solana devnet** is the target of this reference, and
+it is the queue the [devnet deployment](#devnet-deployment) was tested on. **Mainnet queue addresses are unverified**: the SDK exposes a single
 `DEFAULT_QUEUE` constant, and this repo has not confirmed that it is served on
 mainnet. Check MagicBlock's documentation before any mainnet use (and see the
 caveat at the top of this page).
@@ -220,11 +224,10 @@ Rust 1.89.
 The full request → fulfillment path needs a live VRF oracle. That exists on
 devnet, not on a bare local validator. Rough manual steps:
 
-1. Build the SBF binary as above and deploy
-   `reference/casino_fair/target/deploy/casino_fair.so` with
-   `solana program deploy` under program ID
-   `2HgWBqXqBzNCjTrPFtWEAknfRSJF6TFKaZgnfZ7mK3MG` (you need that keypair; for
-   your own deployment, change `declare_id!`).
+1. Use the [deployed program](#devnet-deployment), or deploy your own: change
+   `declare_id!` to your program keypair's address, build the SBF binary as
+   above, and deploy `reference/casino_fair/target/deploy/casino_fair.so` with
+   `solana program deploy --program-id <your-program-keypair.json>`.
 2. `init_flip` once per player.
 3. `request_flip(client_seed, guess)` with `oracle_queue = DEFAULT_QUEUE`. Watch
    for `FlipRequestedEvent`.
@@ -233,6 +236,10 @@ devnet, not on a bare local validator. Rough manual steps:
    a result. If it is still `Requested` 150 slots after `requested_slot`, the
    player may `cancel_flip`.
 5. `close_flip` when done to reclaim the rent.
+
+[`scripts/devnet-smoke.ts`](../reference/casino_fair/scripts/devnet-smoke.ts)
+runs these steps, plus negative checks, end to end; see
+[Devnet smoke test](#devnet-smoke-test).
 
 ### Events can be truncated
 
@@ -243,6 +250,99 @@ carry the `#[event_cpi]` accounts that `emit_cpi!` needs. For the same reason
 the crate does not enable Anchor's `event-cpi` feature. Treat the `Flip`
 account as the source of truth, and re-read it whenever an event might have
 been missed.
+
+## Devnet deployment
+
+| Item | Value |
+| ---- | ----- |
+| Program ID | `CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps` |
+| Upgrade authority | `Hithh6rJmGiWRdkBsUKqJyDMnEos1fEb5baumpbYwEhr` |
+| Deployed | slot 514372450, tx `4xDWkDHUCWVmKqj55oSgAy3MZKuCLcA8Tk5zbpTJc6WPwchYFasJAhSmdsPhQjhhBpWmZ6HxVsJ3ATxst3uSDxwd` |
+| ProgramData | `BEx3XozSqF1AwmbUK7yaxFHsnFBjSSA2F1y8MTPvxGKp` (265,512 bytes) |
+| `.so` SHA-256 | `4daaa89ad10127b8e83914d64bd5382ee7f82c28ee33c36c2d4b725937c2d5c7` |
+| IDL account | `F2LaEMG9jJ6BpiA9sp1PLtaqVV66CB78pT7xhFnCqmwj` (`anchor idl init`, same authority) |
+| Features | default (only `DEFAULT_QUEUE` is accepted) |
+
+The binary is the `--locked` SBF build of this crate with default features,
+and the bytes on-chain match it (`solana program dump`, then compare the
+SHA-256 of the first 265,512 bytes).
+
+The IDL committed at
+[`reference/casino_fair/idl/casino_fair.json`](../reference/casino_fair/idl/casino_fair.json)
+is the same document as the on-chain one (`anchor idl fetch
+CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps --provider.cluster devnet`). It
+was generated with `anchor idl build`. The crate is outside the Anchor
+workspace, so that needs a throwaway wrapper workspace whose `Anchor.toml`
+lists `casino_fair` and whose root `Cargo.lock` is a copy of the crate's.
+`anchor idl build` also "syncs" `declare_id!` to
+`target/deploy/casino_fair-keypair.json` in that workspace, generating a fresh
+keypair if there is none: point that path at the real program keypair (or
+check the `address` in the output) before trusting the result. Regenerate the
+IDL and `anchor idl upgrade` it whenever an instruction, account or event
+changes.
+
+### Devnet smoke test
+
+[`reference/casino_fair/scripts/devnet-smoke.ts`](../reference/casino_fair/scripts/devnet-smoke.ts)
+runs a live round trip against the deployed program with `ANCHOR_WALLET` as
+the player. From the repository root, after `npm install`:
+
+```bash
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+ANCHOR_WALLET=./keys/<player>.json \
+npx ts-node --compiler-options '{"module":"commonjs"}' \
+  reference/casino_fair/scripts/devnet-smoke.ts
+```
+
+Each check is a transaction on devnet:
+
+1. `request_flip` on `DEFAULT_TEST_QUEUE` fails with `InvalidOracleQueue`
+   (6003).
+2. `request_flip` + `cancel_flip` in one transaction: the cancel fails with
+   `CancelTooEarly` (6005). `request_flip` + `close_flip` in one transaction:
+   the close fails with `CloseWhileRequested` (6006). The request shares the
+   transaction because the oracle settles faster than a follow-up transaction
+   lands. The failure rolls the request back too.
+3. For each round (`FLIPS`, default 2): `request_flip` on `DEFAULT_QUEUE`.
+   Then a `callback_flip` signed by the player as `vrf_program_identity`, with
+   the live request's exact `(client_seed, round, requested_slot)` and
+   randomness that makes the guess win, fails with Anchor `ConstraintAddress`
+   (2012). Then the flip reaches `Settled` through the oracle's callback: the
+   script finds that transaction, decodes its `FlipSettledEvent`, checks that
+   the VRF program invoked `callback_flip`, and checks that the stored side is
+   the parity of `last_randomness[31]`.
+4. `close_flip` on the settled flip succeeds and returns the rent.
+
+A run costs about 0.001 SOL in fees; the flip rent comes back. The script
+exits non-zero if any check fails. It is not run in CI, because it needs a
+funded devnet key and a live oracle.
+
+**Observed on devnet on 2026-10-24, with the upgrade-authority key as the
+player: 13/13 checks passed.**
+
+| Check | Result | Transaction |
+| ----- | ------ | ----------- |
+| `init_flip` | ok | `61BevzBvHZe6Ss8D87ZC3dQKZiEcZVw1ADLmmRhBnchNYXKiBXSYt3xoBk4E5E73rZ32uAZKqCDhC5z9dNdCCnj7` |
+| request on `DEFAULT_TEST_QUEUE` | 6003 | `5gxg3nGXCmZcabftcLbjCMHhtKPwcuW6daoWxQ3FrimGYGTmWmLNrGBA9X45UkV9LWkpu9XrZtHonXdWL5gumE1z` |
+| request + cancel | 6005 at the cancel | `545Pn6Gm6gi23ZjwWxroWTsgo92LRUTgJmyTXyQq5fkQ4T2SjpgfWzcujiamYkrVXC2CFJgaoRgdAkdF13QNT6zr` |
+| request + close | 6006 at the close | `3acLKdUEgUTpKxfxwsjQentNt5abMWhmpxp4RCm6ZjM4qsqEhQGqnPigxLD91kBmzQm9bbKPKY3WuNXjEh5MgdCb` |
+| round 1 `request_flip` (TAILS, slot 514375367) | ok | `5uD1Y9FYM1NFK2t79e6k8gsR7hWp9sRrKptffTcFjbWMDuXJTegdt5BqHvNR1176F8rYNFztZtNvrduHJSp9qjgn` |
+| round 1 spoofed callback | 2012 | `2f5wQwjJHyntJSKHCFrGirBuioKX5k5gdJb7vAVWFJxh6qQWHoBfCsGrU4hBAbL8NkEiPBcdHUn8kwyK1VTUinBV` |
+| round 1 oracle callback | settled 4 slots after the request: TAILS, won | `661kkTZLdPLwsE6p2ng4uT1yGZzJexMGqSHh3dc4SRg5AUFoadhHMjsr4ZvZ592YQzoujsLhqjCP1EvqAN9m58ui` |
+| round 2 `request_flip` (HEADS, slot 514375411) | ok | `4L25DVqayQCPkH2kuTfxe7fuweHqmZLjVAEwmpNtUCYYHr8wdvyV5BdE7Xg8aAfsUmJrNSftmkxUGkWPtamHRyhP` |
+| round 2 spoofed callback | 2012 | `2UPADNjgmCvkfoYeCt7491onM76WaPqTCggwMUJukNctNK4UXWQrWh24xvMGuAe5b3Cjh5SwCuJ3UZzkjufE6Eys` |
+| round 2 oracle callback | settled 3 slots after the request: HEADS, won | `4NT8JYBAfuFTTS71vxikvB9biq8tcUSZPFea8mb9WkF6zxDxkuG3g4V12x8PfZPSQ6i53AiXCVZGGrmMesnQtJEn` |
+| `close_flip` (Settled) | ok, 0.00145288 SOL returned | `B4N87DxYyPDNYNM4SJrJVswQ5yWdDh9tdfF2CSKcTeBxN3HaShWBJ5mTJrypusPTaMmLGxpio3V8wdTo8QPHRS6` |
+
+The fulfilment transactions are paid by the oracle key
+`vrfkfM4uoisXZQPrFiS2brY4oMkU9EWjyvmvqaFd5AS`. They call the VRF program,
+which CPIs `callback_flip` (about 13,500 compute units). Seven requests were
+fulfilled across four runs. Each flip read back as `Settled` within about
+1.2 s of its request confirming, and where the slots were measured the
+callback landed 3 to 4 slots after the request. The oracle also sent extra fulfilment transactions for the
+same requests that failed inside the VRF program (`Custom: 1`) without
+reaching `callback_flip`. Those look like duplicate attempts by the oracle,
+and they changed nothing.
 
 ## Testing
 
@@ -268,8 +368,9 @@ handlers are thin wrappers around those methods. Covered:
   oracle-queue allow-list per feature set, and that the request's
   `callback_args` encode exactly the `callback_flip` arguments.
 
-**Not covered:** the `#[vrf]` CPI and the `#[vrf_callback]` signer gate. A bare
-validator has no VRF program, so these need a devnet integration run (above).
+**Not covered by the host tests:** the `#[vrf]` CPI and the `#[vrf_callback]`
+signer gate. A bare validator has no VRF program, so the
+[devnet smoke test](#devnet-smoke-test) checks these instead.
 An earlier TypeScript suite claimed to cover the spoofed-callback rejection,
 but it could not run (missing helpers, never-generated types) and would have
 passed on any error. It was removed rather than kept as false assurance.
