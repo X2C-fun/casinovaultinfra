@@ -4,6 +4,8 @@ import {
   PublicKey,
   type ConfirmOptions,
   type Commitment,
+  type Transaction,
+  type VersionedTransaction,
 } from "@solana/web3.js";
 import type { CasinoVault } from "./idl/casino_vault";
 import { DEFAULT_PROGRAM_ID } from "./constants";
@@ -16,8 +18,12 @@ import { loadVaultIdl } from "./idl";
  */
 export interface SdkWallet {
   publicKey: PublicKey;
-  signTransaction<T>(tx: T): Promise<T>;
-  signAllTransactions<T>(txs: T[]): Promise<T[]>;
+  signTransaction<T extends Transaction | VersionedTransaction>(
+    tx: T,
+  ): Promise<T>;
+  signAllTransactions<T extends Transaction | VersionedTransaction>(
+    txs: T[],
+  ): Promise<T[]>;
 }
 
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
@@ -69,8 +75,12 @@ export function getReadonlyProgram(
 ): Program<CasinoVault> {
   const dummyWallet: SdkWallet = {
     publicKey: PublicKey.default,
-    signTransaction: async <T>(tx: T) => tx,
-    signAllTransactions: async <T>(txs: T[]) => txs,
+    signTransaction: async <T extends Transaction | VersionedTransaction>(
+      tx: T,
+    ) => tx,
+    signAllTransactions: async <T extends Transaction | VersionedTransaction>(
+      txs: T[],
+    ) => txs,
   };
   const provider = new AnchorProvider(connection, dummyWallet, confirmOptions);
   return new Program<CasinoVault>(loadVaultIdl(programId), provider);

@@ -8,9 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- SDK 0.1.1: the package exports `./package.json`, which some tools read, and
-  its `repository.url` uses the form npm expects (npm rewrote it when 0.1.0
-  was published). No code changes.
+- SDK 0.1.1: `SdkWallet` accepts the wallet adapter's `AnchorWallet` without a
+  cast (its sign methods are now constrained to `Transaction |
+  VersionedTransaction`, as Anchor's own `Wallet` is). The package also
+  exports `./package.json`, which some tools read, and its `repository.url`
+  uses the form npm expects (npm rewrote it when 0.1.0 was published).
 
 ## [0.3.0] - 2026-10-24
 
