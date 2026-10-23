@@ -11,7 +11,6 @@ import {
   getProgram,
   getProvider,
   solToLamports,
-  type SdkWallet,
 } from "@x2c-fun/casinovault-sdk";
 import { Transaction } from "@solana/web3.js";
 
@@ -54,18 +53,13 @@ export function DepositPanel({
     try {
       setBusy(true);
       const lamports = solToLamports(amount);
-      // AnchorWallet's sign methods are generic over Transaction |
-      // VersionedTransaction; SdkWallet (sdk 0.1.0) declares them over any T,
-      // so TypeScript rejects the assignment although Anchor only ever passes
-      // transactions. Same object, narrower type.
-      const sdkWallet = anchorWallet as SdkWallet;
-      const program = getProgram(connection, sdkWallet, PROGRAM_ID);
+      const program = getProgram(connection, anchorWallet, PROGRAM_ID);
       const ix = await buildDepositIx(program, {
         depositor: wallet.publicKey,
         amountLamports: lamports,
       });
 
-      const signature = await getProvider(connection, sdkWallet).sendAndConfirm(
+      const signature = await getProvider(connection, anchorWallet).sendAndConfirm(
         new Transaction().add(ix),
       );
 
