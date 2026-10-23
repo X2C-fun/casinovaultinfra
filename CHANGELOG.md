@@ -6,10 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-24
+
+Adds the pieces a game builds on: a TypeScript SDK (published to npm), a
+reference settlement backend, and a MagicBlock VRF fairness reference. Fixes
+a double send in the CLI scripts and makes `initialize` one transaction.
+The vault program is unchanged: devnet still runs v0.2.0 (slot 512813387);
+only the doc text of the `withdraw` `user` account in the IDL differs. Not
+audited; not for mainnet funds.
+
+| Component | Version |
+| --- | --- |
+| `casino_vault` program | 0.2.0 (unchanged, devnet `EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7`) |
+| `@x2c-fun/casinovault-sdk` | 0.1.0 on npm (tag `sdk-v0.1.0`) |
+| `packages/backend` | 0.1.0, private reference |
+| `reference/casino_fair` | 0.1.0, not deployed |
+
 ### Added
 
-- **TypeScript SDK** (`packages/sdk`, `@x2c-fun/casinovault-sdk` 0.1.0, not yet
-  published): the v0.2.0 IDL and types, PDAs, builders for every instruction
+- **TypeScript SDK** (`packages/sdk`, `@x2c-fun/casinovault-sdk` 0.1.0,
+  [on npm](https://www.npmjs.com/package/@x2c-fun/casinovault-sdk)): the v0.2.0 IDL and types, PDAs, builders for every instruction
   (u64 arguments range-checked), account reads, pool reconciliation, and:
   - `buildWithdrawTransaction` and `assertSafeWithdrawTx`, the same pre-sign
     check as the frontend (`withdraw` discriminator, amount, `request_id`,
@@ -327,7 +343,8 @@ CI:
   `DdpfHbMEYWqZM9yzPvyT45qLPfiLP6yKaPNTgqx7navY`; that deployment is no longer
   maintained (see 0.1.1).
 
-[Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/X2C-fun/casinovaultinfra/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/X2C-fun/casinovaultinfra/compare/a0da5b8...v0.1.1
 [0.1.0]: https://github.com/X2C-fun/casinovaultinfra/commit/a0da5b8
