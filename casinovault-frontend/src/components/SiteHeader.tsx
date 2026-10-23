@@ -2,9 +2,9 @@
 
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { shortAddress } from "@x2c-fun/casinovault-sdk";
 
 import { CLUSTER_LABEL, PROGRAM_ID, explorerAddress } from "@/lib/constants";
-import { shortAddress } from "@/lib/format";
 
 export function SiteHeader() {
   const { publicKey } = useWallet();

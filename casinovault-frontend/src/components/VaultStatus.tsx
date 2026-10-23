@@ -1,7 +1,7 @@
 "use client";
 
 import { explorerAddress } from "@/lib/constants";
-import { lamportsToSol, shortAddress } from "@/lib/format";
+import { lamportsToSol, shortAddress } from "@x2c-fun/casinovault-sdk";
 import type { VaultSnapshot } from "@/hooks/useVaultState";
 
 function formatWindow(seconds: number): string {

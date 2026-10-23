@@ -3,10 +3,9 @@
 import { FormEvent, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Transaction } from "@solana/web3.js";
+import { assertSafeWithdrawTx, solToLamports } from "@x2c-fun/casinovault-sdk";
 
-import { explorerTx } from "@/lib/constants";
-import { solToLamports } from "@/lib/format";
-import { assertSafeWithdrawTx } from "@/lib/withdrawTx";
+import { PROGRAM_ID, explorerTx } from "@/lib/constants";
 import type { VaultSnapshot } from "@/hooks/useVaultState";
 
 export function WithdrawPanel({
@@ -89,6 +88,8 @@ export function WithdrawPanel({
         expectedLamports: lamports,
         expectedRequestId: BigInt(payload.requestId),
         expectedAdmin: vault.admin,
+        // Client-side constant, never taken from the server response.
+        programId: PROGRAM_ID,
       });
 
       // 3) User signs the partially-signed transaction and sends it.

@@ -1,18 +1,21 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { BN } from "@coral-xyz/anchor";
 import {
   useAnchorWallet,
   useConnection,
   useWallet,
 } from "@solana/wallet-adapter-react";
-import { SystemProgram } from "@solana/web3.js";
+import {
+  buildDepositIx,
+  getProgram,
+  getProvider,
+  solToLamports,
+  type SdkWallet,
+} from "@x2c-fun/casinovault-sdk";
+import { Transaction } from "@solana/web3.js";
 
-import { explorerTx } from "@/lib/constants";
-import { solToLamports } from "@/lib/format";
-import { getProgram } from "@/lib/program";
-import { derivePoolVaultPda, deriveVaultStatePda } from "@/lib/pdas";
+import { PROGRAM_ID, explorerTx } from "@/lib/constants";
 import type { VaultSnapshot } from "@/hooks/useVaultState";
 
 export function DepositPanel({
@@ -51,19 +54,20 @@ export function DepositPanel({
     try {
       setBusy(true);
       const lamports = solToLamports(amount);
-      const program = getProgram(anchorWallet, connection);
-      const [vaultState] = deriveVaultStatePda();
-      const [poolVault] = derivePoolVaultPda();
+      // AnchorWallet's sign methods are generic over Transaction |
+      // VersionedTransaction; SdkWallet (sdk 0.1.0) declares them over any T,
+      // so TypeScript rejects the assignment although Anchor only ever passes
+      // transactions. Same object, narrower type.
+      const sdkWallet = anchorWallet as SdkWallet;
+      const program = getProgram(connection, sdkWallet, PROGRAM_ID);
+      const ix = await buildDepositIx(program, {
+        depositor: wallet.publicKey,
+        amountLamports: lamports,
+      });
 
-      const signature = await program.methods
-        .deposit(new BN(lamports.toString()))
-        .accountsPartial({
-          depositor: wallet.publicKey,
-          vaultState,
-          poolVault,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+      const signature = await getProvider(connection, sdkWallet).sendAndConfirm(
+        new Transaction().add(ix),
+      );
 
       setTxSig(signature);
       setMessage("Deposit confirmed.");

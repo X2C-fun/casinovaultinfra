@@ -272,12 +272,10 @@ anchor deploy -p casino_vault --provider.cluster devnet
 # then: create admin + initialize (section above)
 ```
 
-Copy the new IDL into the frontend:
-
-```bash
-cp target/idl/casino_vault.json casinovault-frontend/src/idl/casino_vault.json
-cp target/types/casino_vault.ts casinovault-frontend/src/idl/casino_vault.ts
-```
+A new program ID needs no IDL copy: the SDK's IDL is pointed at whatever ID
+you pass it, and the frontend passes `NEXT_PUBLIC_VAULT_PROGRAM_ID`. Only an
+interface change (instructions, accounts, events) needs a new IDL, in
+`packages/sdk/src/idl/`, and an SDK release — see [releasing.md](releasing.md).
 
 Back up `target/deploy/casino_vault-keypair.json` — `target/` is git-ignored.
 

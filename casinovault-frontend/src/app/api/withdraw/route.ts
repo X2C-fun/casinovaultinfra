@@ -16,21 +16,19 @@
 
 import { randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  Transaction,
-} from "@solana/web3.js";
-import { BN, Program } from "@coral-xyz/anchor";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import type { BN } from "@coral-xyz/anchor";
 import bs58 from "bs58";
+import {
+  buildWithdrawTransaction,
+  createConnection,
+  derivePoolVaultPda,
+  deriveVaultStatePda,
+  getReadonlyProgram,
+  solToLamports,
+} from "@x2c-fun/casinovault-sdk";
 
-import type { CasinoVault } from "@/idl/casino_vault";
 import { PROGRAM_ID, SOLANA_RPC } from "@/lib/constants";
-import { solToLamports } from "@/lib/format";
-import { derivePoolVaultPda, deriveVaultStatePda } from "@/lib/pdas";
-import { VAULT_IDL } from "@/lib/program";
 
 export const runtime = "nodejs";
 
@@ -279,9 +277,9 @@ export async function POST(req: NextRequest) {
       // could submit. House withdrawals go through the CLI, not this route.
       throw new HttpError(400, "user must not be the vault admin");
     }
-    const connection = new Connection(serverRpcUrl(), "confirmed");
+    const connection = createConnection(serverRpcUrl());
     await assertNotMainnet(connection);
-    const program = new Program<CasinoVault>(VAULT_IDL, { connection });
+    const program = getReadonlyProgram(connection, PROGRAM_ID);
     const [vaultState] = deriveVaultStatePda(PROGRAM_ID);
     const [poolVault] = derivePoolVaultPda(PROGRAM_ID);
 
@@ -338,25 +336,19 @@ export async function POST(req: NextRequest) {
     // demo has no ledger, so it uses a random 64-bit ID.
     const requestId = randomBytes(8).readBigUInt64LE(0);
 
-    const ix = await program.methods
-      .withdraw(new BN(lamports.toString()), new BN(requestId.toString()))
-      .accountsPartial({
-        user,
-        admin: admin.publicKey,
-        vaultState,
-        poolVault,
-        systemProgram: SystemProgram.programId,
-      })
-      .instruction();
+    // Built here, never taken from the caller: exactly one `withdraw` with
+    // `user` as fee payer (no ComputeBudget instructions in this demo).
+    const tx = await buildWithdrawTransaction(program, {
+      user,
+      admin: admin.publicKey,
+      amountLamports: lamports,
+      requestId,
+    });
 
     const { blockhash, lastValidBlockHeight } =
       await connection.getLatestBlockhash("confirmed");
-
-    const tx = new Transaction({
-      feePayer: user,
-      blockhash,
-      lastValidBlockHeight,
-    }).add(ix);
+    tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
     tx.partialSign(admin);
 
     return NextResponse.json({

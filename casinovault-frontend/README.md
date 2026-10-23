@@ -68,17 +68,23 @@ Never put `ADMIN_SECRET_KEY` in a `NEXT_PUBLIC_*` variable.
    refuses to sign unless it is exactly one `withdraw` instruction to this
    program, for the requested amount, paying the connected wallet, with the
    connected wallet as fee payer and only the user and admin as signers
-   (`src/lib/withdrawTx.ts`).
+   (`assertSafeWithdrawTx` from `@x2c-fun/casinovault-sdk`, checked against
+   this app's own `PROGRAM_ID`, never one from the server).
 5. The wallet signs; the UI submits and confirms with
    `{ signature, blockhash, lastValidBlockHeight }`, so an expired transaction
    fails instead of hanging.
 
-## Sync IDL after program changes
+## IDL and program helpers
 
-```bash
-cp ../target/idl/casino_vault.json src/idl/casino_vault.json
-cp ../target/types/casino_vault.ts src/idl/casino_vault.ts
-```
+The app keeps no copy of the IDL. It imports the IDL, PDAs, program
+construction, amount formatting, the withdraw-transaction builder and the
+pre-sign check from the published
+[`@x2c-fun/casinovault-sdk`](../packages/sdk). Frontend-only settings (program
+ID, RPC URL, cluster, explorer links) live in `src/lib/constants.ts`.
+
+After a program interface change, the new IDL reaches this app through an SDK
+release: bump `@x2c-fun/casinovault-sdk` here (see
+[docs/releasing.md](../docs/releasing.md)).
 
 ## Fonts
 

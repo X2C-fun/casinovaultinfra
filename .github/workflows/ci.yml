@@ -104,11 +104,10 @@ jobs:
       - name: casino_fair SBF build
         run: cargo build-sbf --manifest-path reference/casino_fair/Cargo.toml --tools-version v1.48 -- --locked
 
+      # The SDK holds the only committed IDL copy; the frontend imports it
+      # from the published @x2c-fun/casinovault-sdk package.
       - name: Committed IDL matches build output
         run: |
-          diff <(jq -S . target/idl/casino_vault.json) \
-               <(jq -S . casinovault-frontend/src/idl/casino_vault.json)
-          diff target/types/casino_vault.ts casinovault-frontend/src/idl/casino_vault.ts
           diff <(jq -S . target/idl/casino_vault.json) \
                <(jq -S . packages/sdk/src/idl/casino_vault.json)
           diff target/types/casino_vault.ts packages/sdk/src/idl/casino_vault.ts

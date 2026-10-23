@@ -14,6 +14,22 @@ All notable changes to this project are documented here. The format follows
   exports `./package.json`, which some tools read, and its `repository.url`
   uses the form npm expects (npm rewrote it when 0.1.0 was published).
 
+### Changed
+
+- **Frontend uses the published SDK.** `casinovault-frontend` depends on
+  `@x2c-fun/casinovault-sdk` `^0.1.0` from npm for the IDL, PDAs, program
+  construction, amount formatting, deposits, the demo route's withdraw
+  transaction (`buildWithdrawTransaction`) and the pre-sign check
+  (`assertSafeWithdrawTx`, given the app's own `PROGRAM_ID`). Its duplicate
+  `src/lib/{format,pdas,program,withdrawTx}.ts` are gone; `src/lib/constants.ts`
+  keeps only env-derived settings. The pre-sign check now also rejects
+  versioned transactions, and SOL amounts display locale-independently
+  (`1234.50`, no grouping separators). The demo route's guards are unchanged.
+- **One IDL copy.** The frontend's `src/idl/` copy is removed; CI's IDL drift
+  check covers `packages/sdk/src/idl/` only. A program interface change reaches
+  the frontend through an SDK release and a dependency bump
+  (`docs/releasing.md`); Dependabot ignores minor SDK bumps for the frontend.
+
 ## [0.3.0] - 2026-10-24
 
 Adds the pieces a game builds on: a TypeScript SDK (published to npm), a

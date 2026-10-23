@@ -98,16 +98,18 @@ cd ..
 ## Program changes
 
 - If you change instructions, accounts, events, or errors, regenerate and
-  commit the IDL copies in the frontend and the SDK — CI fails if either
-  drifts:
+  commit the IDL copy in the SDK — CI fails if it drifts:
 
   ```bash
   anchor build
-  cp target/idl/casino_vault.json casinovault-frontend/src/idl/casino_vault.json
-  cp target/types/casino_vault.ts casinovault-frontend/src/idl/casino_vault.ts
   cp target/idl/casino_vault.json packages/sdk/src/idl/
   cp target/types/casino_vault.ts packages/sdk/src/idl/
   ```
+
+  `packages/sdk/src/idl/` is the only copy. The demo frontend imports the IDL
+  from the published `@x2c-fun/casinovault-sdk` package, so it sees the change
+  only after an SDK release and a bump of its dependency (see
+  [docs/releasing.md](docs/releasing.md)).
 
 - Account layout changes are breaking for existing deployments. Call them out
   in the PR and in `CHANGELOG.md`, including the migration path.
