@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- SDK 0.1.1: the package exports `./package.json`, which some tools read, and
+  its `repository.url` uses the form npm expects (npm rewrote it when 0.1.0
+  was published). No code changes.
+
 ## [0.3.0] - 2026-10-24
 
 Adds the pieces a game builds on: a TypeScript SDK (published to npm), a
