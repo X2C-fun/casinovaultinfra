@@ -82,6 +82,22 @@ the program's instructions, accounts or events change, regenerate
 `packages/sdk/src/idl/` from `anchor build` (CI checks it matches) and bump the
 SDK's minor version.
 
+`packages/sdk/src/idl/` is the repository's only IDL copy. The demo frontend
+(`casinovault-frontend`) depends on the **published** SDK from npm, not on the
+source in this repo, so an IDL change reaches it only through a release:
+
+1. Merge the program change with the regenerated SDK IDL.
+2. Publish the new SDK version as above.
+3. In `casinovault-frontend`, bump the dependency and commit the lockfile:
+   `npx -y npm@11.21.1 install @x2c-fun/casinovault-sdk@^<new version>`, then
+   `npm run build`. While the SDK is `0.x`, `^0.1.0` does not match `0.2.0`,
+   so a minor release always needs this step. Do it by hand: Dependabot
+   ignores minor SDK bumps for the frontend (`.github/dependabot.yml`) so an
+   interface change is never merged ahead of the program that matches it.
+
+Until step 3 lands, the frontend keeps working against the previous interface,
+so deploy the program upgrade and the frontend bump together.
+
 ## Publishing under another scope
 
 Change `"name"` in `packages/sdk/package.json` (for example

@@ -40,7 +40,7 @@ reference/
 packages/
   sdk/               # @x2c-fun/casinovault-sdk  (publishable)
   backend/           # @x2c-fun/casinovault-backend  (private reference; not published)
-casinovault-frontend/# Next.js demo app (self-contained; SDK wiring is a post-publish step)
+casinovault-frontend/# Next.js demo app; uses the published SDK from npm (no IDL copy)
 scripts/             # admin/ops TS scripts (initialize, deposit, withdraw, ...)
 tests/               # vault integration tests (anchor test)
 docs/                # the real documentation (read these)
@@ -204,8 +204,11 @@ and not built by `anchor build`.
 - **Add a vault instruction:** add it in `programs/casino_vault/src/instructions/`,
   wire it in `lib.rs`, add an event in `events.rs` and an error (append-only) if
   needed, regenerate the IDL (`anchor build`), copy the new IDL into
-  `packages/sdk/src/idl/`, add an SDK builder in `packages/sdk/src/instructions.ts`,
-  and a known-answer test in `tests/`.
+  `packages/sdk/src/idl/` (the only copy), add an SDK builder in
+  `packages/sdk/src/instructions.ts`, and a known-answer test in `tests/`. The
+  frontend depends on the **published** SDK, so it sees the new IDL only after
+  an SDK release and a dependency bump in `casinovault-frontend`
+  (`docs/releasing.md`).
 - **Add an SDK helper:** implement in `packages/sdk/src/`, export from `index.ts`,
   add a unit test in `src/sdk.test.ts`, `npm run build && npm test`.
 - **Change backend balance logic:** edit `packages/backend/src/ledger/` (keep the

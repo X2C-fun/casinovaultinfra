@@ -3,9 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
+import {
+  derivePoolVaultPda,
+  deriveVaultStatePda,
+  fetchVaultState,
+  getReadonlyProgram,
+} from "@x2c-fun/casinovault-sdk";
 
-import { derivePoolVaultPda, deriveVaultStatePda } from "@/lib/pdas";
-import { getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
+import { PROGRAM_ID } from "@/lib/constants";
 
 export type VaultSnapshot = {
   initialized: boolean;
@@ -53,11 +58,11 @@ export function useVaultState(pollMs = 12_000) {
   const refresh = useCallback(async () => {
     try {
       const rentReserve = await connection.getMinimumBalanceForRentExemption(0);
-      const stateInfo = await connection.getAccountInfo(vaultState, "confirmed");
-      const program = getReadonlyProgram(connection);
+      const program = getReadonlyProgram(connection, PROGRAM_ID);
+      const state = await fetchVaultState(program, PROGRAM_ID);
       setError(null);
 
-      if (!stateInfo) {
+      if (!state) {
         setData({
           ...EMPTY,
           rentReserve,
@@ -67,7 +72,6 @@ export function useVaultState(pollMs = 12_000) {
         return;
       }
 
-      const state = await program.account.vaultState.fetch(vaultState);
       const poolLamports = await connection.getBalance(poolVault, "confirmed");
       const withdrawableLamports = Math.max(0, poolLamports - rentReserve);
 
@@ -77,8 +81,8 @@ export function useVaultState(pollMs = 12_000) {
         paused: state.paused,
         vaultBump: state.vaultBump,
         pendingAdmin: state.pendingAdmin,
-        maxWithdrawPerTx: BigInt(state.maxWithdrawPerTx.toString()),
-        maxWithdrawPerWindow: BigInt(state.maxWithdrawPerWindow.toString()),
+        maxWithdrawPerTx: state.maxWithdrawPerTx,
+        maxWithdrawPerWindow: state.maxWithdrawPerWindow,
         windowSeconds: state.windowSeconds,
         poolLamports,
         rentReserve,

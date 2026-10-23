@@ -1,17 +1,23 @@
+/**
+ * Frontend-only configuration: which deployment, RPC and explorer this app
+ * talks to, read from `NEXT_PUBLIC_*` env vars at build time. Everything about
+ * the program itself (IDL, PDAs, seeds, builders, the withdraw-tx check) comes
+ * from `@x2c-fun/casinovault-sdk`, which never reads `process.env`.
+ */
 import { PublicKey } from "@solana/web3.js";
+import { DEFAULT_PROGRAM_ID } from "@x2c-fun/casinovault-sdk";
 
-/** Program ID of this repository's devnet deployment. */
-export const DEFAULT_PROGRAM_ID = "EXTH5XRAqc45efhoL5UjwhhLFV4smgaB4m6QVG74Vqa7";
-
-/** On-chain program ID. Override per deployment with NEXT_PUBLIC_VAULT_PROGRAM_ID. */
+/**
+ * On-chain program ID, bundled into the client. Override per deployment with
+ * NEXT_PUBLIC_VAULT_PROGRAM_ID; defaults to the SDK's devnet deployment.
+ *
+ * Pass it explicitly to every SDK helper: the SDK's own default is
+ * DEFAULT_PROGRAM_ID, not this override. It is also the client-side constant
+ * `assertSafeWithdrawTx` checks against, so it must never come from the server.
+ */
 export const PROGRAM_ID = new PublicKey(
-  process.env.NEXT_PUBLIC_VAULT_PROGRAM_ID?.trim() || DEFAULT_PROGRAM_ID,
+  process.env.NEXT_PUBLIC_VAULT_PROGRAM_ID?.trim() || DEFAULT_PROGRAM_ID.toBase58(),
 );
-
-export const VAULT_STATE_SEED = Buffer.from("vault_state_v2");
-export const POOL_VAULT_SEED = Buffer.from("pool_vault");
-/** Seed of the PDA Anchor's `emit_cpi!` signs with. */
-export const EVENT_AUTHORITY_SEED = Buffer.from("__event_authority");
 
 export const SOLANA_RPC =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
@@ -30,5 +36,3 @@ export function explorerTx(signature: string): string {
 export function explorerAddress(address: string): string {
   return `https://explorer.solana.com/address/${address}${EXPLORER_CLUSTER}`;
 }
-
-export const LAMPORTS_PER_SOL = 1_000_000_000;

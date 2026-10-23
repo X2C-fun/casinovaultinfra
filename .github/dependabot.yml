@@ -50,6 +50,11 @@ updates:
       # Upgrade web3.js together with Anchor, not on its own.
       - dependency-name: "@solana/web3.js"
         update-types: ["version-update:semver-minor"]
+      # The SDK carries the IDL. While it is 0.x a minor release is a program
+      # interface change, so bump it by hand together with the deployed
+      # program (docs/releasing.md). Patch releases still arrive grouped.
+      - dependency-name: "@x2c-fun/casinovault-sdk"
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: npm
     directory: /packages/sdk

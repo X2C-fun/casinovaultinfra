@@ -39,6 +39,16 @@ Before asking the wallet to sign, the UI decodes the server's transaction and
 refuses anything other than a single `withdraw` (optionally preceded by
 ComputeBudget instructions whose priority fee is at most 0.001 SOL) of the requested amount and
 `request_id` to the connected wallet, with the connected wallet as fee payer
-(`src/lib/withdrawTx.ts`). Integrators should keep that check.
+(the SDK's `assertSafeWithdrawTx`, called with the app's own `PROGRAM_ID`,
+never one from the server). Integrators should keep that check.
+
+The app uses `@x2c-fun/casinovault-sdk` from npm for the IDL, PDAs, program
+construction, amount formatting, the withdraw-transaction builder and that
+check. Only frontend configuration lives in `src/lib/constants.ts` (program ID,
+RPC, cluster and explorer links from `NEXT_PUBLIC_*` env vars). Pass
+`PROGRAM_ID` explicitly to every SDK helper: their default is the SDK's
+`DEFAULT_PROGRAM_ID`, not the env override. The app keeps no IDL copy; a
+program interface change reaches it through an SDK release (see
+[releasing.md](releasing.md)).
 
 See `casinovault-frontend/README.md` for details.
