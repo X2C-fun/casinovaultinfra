@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Docs: `casino_fair` is described as an optional example throughout. Nothing
+  in the vault, SDK or backend uses it, and the vault runs without it;
+  `docs/fairness.md` sketches how a game could connect it to the vault.
 - **Frontend uses the published SDK.** `casinovault-frontend` depends on
   `@x2c-fun/casinovault-sdk` `^0.1.1` from npm for the IDL, PDAs, program
   construction, amount formatting, deposits, the demo route's withdraw

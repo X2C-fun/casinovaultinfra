@@ -11,6 +11,10 @@ randomness that the player cannot predict and the oracle cannot bias. The oracle
 *can* predict the result and *can* withhold it; the trust model below spells
 out what that means. It is a *primitive*, not a game: it does not move funds.
 
+It is **optional**: nothing in the vault, the SDK or the backend uses it, and
+the vault works without it. A game may use it, another randomness source, or
+none at all.
+
 - **Program:** `reference/casino_fair`
 - **Program ID (devnet):** `CC3Nd2gwMHDf3FWUbwMxW4FWM4BTWubDyrU9AkoH2Eps`
   (see [Devnet deployment](#devnet-deployment))
@@ -24,6 +28,7 @@ out what that means. It is a *primitive*, not a game: it does not move funds.
 > `--manifest-path` (see [Building and testing](#building-and-testing)); the
 > root workspace's `cargo test -p casino_fair` does **not** work, because the
 > crate is excluded from the workspace.
+
 
 ## What it does
 
@@ -158,6 +163,25 @@ Idle / Settled / Cancelled ──close_flip──► account closed, rent return
 - `cancel_flip` bumps `round` and leaves `Requested`, so the cancelled
   request's callback fails `is_awaiting`. It is ignored if it arrives while the
   flip is `Cancelled` and also after a new request.
+
+## Using it with the vault
+
+Nothing connects the two today: `casino_fair` records who won but holds no
+stake (its `bet` field is unused), and the vault knows nothing about games. A
+game that wants both would add the link off-chain, in its backend:
+
+1. Take the player's stake as a hold in the backend ledger, the same way a
+   withdrawal is held before signing (see
+   [Backend integration](backend-integration.md)).
+2. Send `request_flip` for that player.
+3. Watch for `FlipSettledEvent` from finalized, successful transactions and
+   settle the hold from `won`: pay out or keep the stake in the ledger.
+4. Settle a cancelled flip by a fixed rule (refund or forfeit) that does not
+   depend on the outcome, so cancel can't be used as a re-roll (see
+   [Trust model](#trust-model)).
+
+None of this is built. It would be a game service next to the reference
+backend, not part of the vault.
 
 ## Oracle queues
 

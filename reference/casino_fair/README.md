@@ -6,6 +6,11 @@ verifiable randomness through an authenticated callback, and the result is
 stored in the player's `Flip` account. It is a primitive, not a game: it does
 not move funds.
 
+It is **optional**. The vault, the SDK and the backend don't use it, and
+`casinovaultinfra` works without it. It shows one way a game built on the vault
+could decide outcomes with randomness the operator can't rig; see
+[Using it with the vault](../../docs/fairness.md#using-it-with-the-vault).
+
 > **Not audited. Not for mainnet funds.** This is a devnet reference. Read the
 > trust model in [docs/fairness.md](../../docs/fairness.md) before building on
 > it: the oracle can predict and withhold results, and cancel is a re-roll

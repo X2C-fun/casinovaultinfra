@@ -22,7 +22,7 @@ them.
 | **Vault program** | The **safe**. Custody only: moves SOL in/out of one shared pool under authority checks and emits an event for every change. Knows nothing about balances, bets, odds, or games. | `programs/casino_vault` |
 | **SDK** | The **toolkit**. Typed client: IDL, PDAs, instruction builders, a safe withdraw-tx builder + verifier, event decoding, reconciliation. | `packages/sdk` |
 | **Settlement backend** | The **cashier/accountant**. Keeps per-player balances, approves payouts safely, watches the chain, settles from events, pauses on incident, reconciles. This is where solvency actually lives. | `packages/backend` |
-| **Fairness primitive** | The **provably-fair coin-flipper** (MagicBlock VRF). Randomness nobody can bias. A reference, not a game. | `reference/casino_fair` |
+| **Fairness example** (optional) | The **provably-fair coin-flipper** (MagicBlock VRF). Randomness nobody can bias. A reference, not a game, and not part of custody: nothing else in the repo calls it, and the vault, SDK and backend work without it. | `reference/casino_fair` |
 
 The vault is deliberately dumb. All accounting and game logic live **off-chain**
 in the backend, driven by the events the vault emits.
