@@ -34,7 +34,7 @@
     "@types/node": "^22.20.5",
     "chai": "^4.5.0",
     "mocha": "^10.8.2",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.1",
     "ts-mocha": "^11.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
